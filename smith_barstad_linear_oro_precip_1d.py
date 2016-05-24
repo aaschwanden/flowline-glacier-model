@@ -12,7 +12,6 @@ import numpy as np
 import pylab as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
-from osgeo import gdal
 import cmath
 
 dx = dy = 1000.
@@ -31,6 +30,8 @@ physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
 physical_constants['Nm'] = 0  # 0.005 # moist stability frequency [s-1]
 physical_constants['Cw'] = 0.001  # uplift sensitivity factor [k m-3]
 physical_constants['Hw'] = 1000  # vapor scale height
+physical_constants['u'] = 5  # x-component of wind vector [m s-1]
+physical_constants['v'] = 0  # y-component of wind vector [m s-1]
 
 
 
@@ -65,37 +66,39 @@ myarray = H
 
 myarrayfft = np.fft.fft2(myarray)
 
-y_n_value = np.fft.fftfreq(len(myarray),(1.0/len(myarray)))
-x_n_value = np.fft.fftfreq( len(myarray[1,:]),(1.0/ len(myarray[1,:])))
+x_n_value = np.fft.fftfreq(len(myarray[1,:]), (1.0 / len(myarray[1,:])))
+y_n_value = np.fft.fftfreq(len(myarray), (1.0/len(myarray)))
 
-x_array = np.zeros( (len(myarray), len(myarray[1,:])), dtype = float)
-y_array = np.zeros( (len(myarray), len(myarray[1,:])), dtype = float)
+# x_array = np.zeros((len(myarray), len(myarray[1,:])), dtype = float)
+# y_array = np.zeros((len(myarray), len(myarray[1,:])), dtype = float)
 
-V_array = np.multiply(np.ones( (len(myarray), len(myarray[1,:])), dtype = float),5)
-U_array = np.multiply(np.ones( (len(myarray), len(myarray[1,:])), dtype = float),0)
+U = np.multiply(np.ones( (len(myarray), len(myarray[1,:])), dtype = float), physical_constants['u'])
+V = np.multiply(np.ones( (len(myarray), len(myarray[1,:])), dtype = float), physical_constants['v'])
 
+x_len = len(myarray) * dx
+y_len = len(myarray[1,:]) * dy
 
-x_len = len(myarray)*dx
-y_len = len(myarray[1,:])*dy
+kx_line = np.divide(np.multiply(2.0 * np.pi, x_n_value), x_len)
+ky_line = np.divide(np.multiply(2.0 * np.pi, y_n_value), y_len)[np.newaxis].T
 
-kx_line = np.divide(np.multiply(2.0*np.pi,x_n_value),x_len)
-ky_line = np.divide(np.multiply(2.0*np.pi,y_n_value),y_len)[np.newaxis].T
+kx = np.tile(kx_line, (ny, 1))
+ky = np.tile(ky_line, (1, nx))
 
-kx = np.tile(kx_line,(ny,1))
-ky = np.tile(ky_line,(1,nx))
+sigma = np.add(np.multiply(kx, U), np.multiply(ky, V))
 
-sigma = np.add(np.multiply(kx,U_array), np.multiply(ky,V_array))
-
-
-
-m = np.power(np.multiply(np.add(np.power(kx,2.) , np.power(ky,2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma,2.)) , np.subtract(np.power(sigma,2.),physical_constants['f']**2.))) , 0.5)
+m = np.power(np.multiply(np.add(np.power(kx, 2.) , np.power(ky, 2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma, 2.)) , np.subtract(np.power(sigma, 2.),physical_constants['f']**2.))) , 0.5)
 
 m[np.isnan(m)] = 0
 m = np.maximum(m,0.0001)
 m = np.minimum(m,0.01)
 
 
-P_karot = np.divide(np.multiply(np.multiply(np.multiply(physical_constants['Cw'],cmath.sqrt(-1)),sigma),myarrayfft), np.multiply(np.subtract(np.multiply (np.multiply(physical_constants['Hw'],m) , cmath.sqrt(-1)), 1),  np.multiply(np.add(np.multiply( np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)),1),np.add(np.multiply( np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)),1))))      
+P_karot_nom = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), myarrayfft)
+P_karot_denom_Hw = np.subtract(np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)), 1)
+P_karot_denom_tauc =  np.add(np.multiply(np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)), 1)
+P_karot_denom_tauf = np.add(np.multiply(np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)), 1)
+P_karot_denom = np.multiply(P_karot_denom_Hw, np.multiply(P_karot_denom_tauc, P_karot_denom_tauf))
+P_karot = np.divide(P_karot_nom, P_karot_denom)      
 
 P_karot_amp = np.absolute(P_karot) # get the amplitude
 P_karot_angle = np.angle(P_karot) # get the phase angle
