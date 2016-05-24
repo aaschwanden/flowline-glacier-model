@@ -29,7 +29,8 @@ class OrographicPrecipitation(object):
         self.ny = len(Orography)
 
         self.P = self._compute_precip()
-
+        self.P_units = 'm s-1'
+        
     def _compute_precip(self):
 
         physical_constants = self.physical_constants
@@ -83,7 +84,7 @@ class OrographicPrecipitation(object):
 
 
 if __name__ == "__main__":
-    print 'Linear Orographic Precipitation Model by Smith & Barstad (2004)'
+    print('Linear Orographic Precipitation Model by Smith & Barstad (2004)')
 
     from cf_units import Unit
     import pylab as plt
@@ -113,7 +114,7 @@ if __name__ == "__main__":
 
     OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
 
-    inunit = 'm s-1'
+    inunit = OP.P_units
     outunit = 'm year-1'
     in_unit  = Unit(inunit)
     out_unit  = Unit(outunit)
