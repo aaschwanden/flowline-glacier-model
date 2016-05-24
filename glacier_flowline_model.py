@@ -346,29 +346,29 @@ assigner.assign(l_bound,[l_v_bound]*2+[l_thick_bound])
 assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
 
 ################## PLOTTING ##########################
-ion()
-fig,ax = subplots(nrows=2,sharex=True)
+# ion()
+# fig,ax = subplots(nrows=2,sharex=True)
 x = mesh.coordinates().ravel()
 SS = project(S)
 BB = B.compute_vertex_values()
-ph0, = ax[0].plot(x,BB,'b-')
+# ph0, = ax[0].plot(x,BB,'b-')
 
 HH = H0.compute_vertex_values()
 
-ph1, = ax[0].plot(x,BB+HH,'g-')
-ph5, = ax[0].plot(x,BB+HH,'r-')
-ax[0].set_xlim(-L,L/2.)
-ax[0].set_ylim(-1000,2500)
+# ph1, = ax[0].plot(x,BB+HH,'g-')
+# ph5, = ax[0].plot(x,BB+HH,'r-')
+# ax[0].set_xlim(-L,L/2.)
+# ax[0].set_ylim(-1000,2500)
 
 us = project(u(0))
 ub = project(u(1))
-ph3, = ax[1].plot(x,us.compute_vertex_values())
-ph4, = ax[1].plot(x,ub.compute_vertex_values())
+# ph3, = ax[1].plot(x,us.compute_vertex_values())
+# ph4, = ax[1].plot(x,ub.compute_vertex_values())
 
-ax[1].set_xlim(-L,L/2.)
-ax[1].set_ylim(0,400)
+# ax[1].set_xlim(-L,L/2.)
+# ax[1].set_ylim(0,400)
 
-draw()
+# draw()
 mass = []
 time = []
 
@@ -419,13 +419,13 @@ while t<t_end:
     us = project(u(0))
     ub = project(u(1))
 
-    ph0.set_ydata(BB)
-    ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
-    ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
+    # ph0.set_ydata(BB)
+    # ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
+    # ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
 
-    ph3.set_ydata(us.compute_vertex_values())
-    ph4.set_ydata(ub.compute_vertex_values())
-    draw()
+    # ph3.set_ydata(us.compute_vertex_values())
+    # ph4.set_ydata(ub.compute_vertex_values())
+    # draw()
 
     # Save values at each time step
     tdata.append(t)
