@@ -53,25 +53,31 @@ class OrographicPrecipitation(object):
         kx = np.tile(kx_line, (ny, 1))
         ky = np.tile(ky_line, (1, nx))
 
+        # Intrinsic frequency sigma = U*k + V*l
         sigma = np.add(np.multiply(kx, U), np.multiply(ky, V))
 
+        # The vertical wave number
+        # Eqn. 12
         m = np.power(np.multiply(np.add(np.power(kx, 2.) , np.power(ky, 2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma, 2.)) , np.subtract(np.power(sigma, 2.), physical_constants['f']**2.))), 0.5)
 
         m[np.isnan(m)] = 0
         m = np.maximum(m,0.0001)
         m = np.minimum(m,0.01)
-
-
-        P_karot_nom = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft)
+        
+        # Numerator in Eqn. 49
+        P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft)
         P_karot_denom_Hw = np.subtract(np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)), 1)
         P_karot_denom_tauc =  np.add(np.multiply(np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)), 1)
         P_karot_denom_tauf = np.add(np.multiply(np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)), 1)
+        # Denominator in Eqn. 49
         P_karot_denom = np.multiply(P_karot_denom_Hw, np.multiply(P_karot_denom_tauc, P_karot_denom_tauf))
-        P_karot = np.divide(P_karot_nom, P_karot_denom)      
+        P_karot = np.divide(P_karot_num, P_karot_denom)      
 
         P_karot_amp = np.absolute(P_karot)  # get the amplitude
         P_karot_angle = np.angle(P_karot)   # get the phase angle
 
+        # Converting from wave domain back to space domain
+        # Eqn. 6
         y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle) , np.multiply(cmath.sqrt(-1) , np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
 
@@ -98,14 +104,14 @@ if __name__ == "__main__":
     sigma_x = sigma_y = L / 4
 
     physical_constants = dict()
-    physical_constants['tau_c'] = 1000  # [s]
-    physical_constants['tau_f'] = 2000  # [s]
+    physical_constants['tau_c'] = 1000  # conversion time [s]
+    physical_constants['tau_f'] = 2000  # fallout time [s]
     physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
-    physical_constants['Nm'] = 0  # 0.005 # moist stability frequency [s-1]
-    physical_constants['Cw'] = 0.001  # uplift sensitivity factor [k m-3]
-    physical_constants['Hw'] = 1000  # vapor scale height
-    physical_constants['u'] = -5  # x-component of wind vector [m s-1]
-    physical_constants['v'] = 0  # y-component of wind vector [m s-1]
+    physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
+    physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
+    physical_constants['Hw'] = 1000    # vapor scale height
+    physical_constants['u'] = -5       # x-component of wind vector [m s-1]
+    physical_constants['v'] = 0        # y-component of wind vector [m s-1]
 
     X, Y = np.meshgrid(x, y)
     Orography = h_max * np.exp(-(((X-x0)**2/(2*sigma_x**2))+((Y-y0)**2/(2*sigma_y**2))))
@@ -124,7 +130,7 @@ if __name__ == "__main__":
     plt.imshow(P_myear)
     cbar = plt.colorbar()
     cbar.set_label('Precip ({})'.format(outunit), rotation=270, labelpad=20)
-
+    plt.show()
 
 
 
