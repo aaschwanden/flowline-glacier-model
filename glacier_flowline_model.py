@@ -1,12 +1,32 @@
+# Flowline glacier model code by D. Brinkerhoff, UAF
+
 from dolfin import *
-from pylab import deg2rad,plot,show,linspace,zeros,argmin,array,ion,draw,xlim,ylim,subplots,ones,zeros_like
+import numpy as np
 from numpy.polynomial.legendre import leggauss
-from scipy.integrate import trapz,cumtrapz
-from scipy.ndimage.filters import gaussian_filter1d
-from pylab import argmax,where
+from scipy.integrate import trapz, cumtrapz
+from scipy.interpolate import interp1d
+from pylab import argmax, where
 import pickle
-from scipy.special import gamma
 from linear_orog_precip import OrographicPrecipitation
+
+
+def function_from_array(x, y, Q, mesh):
+    '''
+    Returns a function in FunctionSpace Q and mesh interpolated from a array y
+    '''
+    
+    dim = Q.dim()
+    N = mesh.geometry().dim()
+    mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
+    mesh_x = mesh_coor[:, 0]
+    fx_dofs = Q.dofmap().dofs()
+
+    f_interp = interp1d(x, y)
+    mesh_values = f_interp(mesh_x)
+    my_f  = Function(Q)
+    my_f.vector()[fx_dofs] = mesh_values
+    return my_f
+
 
 parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['representation'] = 'quadrature'
@@ -21,59 +41,42 @@ ffc_options = {"optimize": True, \
 ###############        CONSTANTS       ###################
 ##########################################################
 
-L = 45000.            # Length scale 
+L = 50000.            # Length scale [m]
 
-spy = 60**2*24*365    
-thklim = 5.0          # Minimum thickness
-g = 9.81              
+spy = 60**2*24*365    # seconds per year [s year-1]
+thklim = 5.0          # Minimum thickness [m]
+g = 9.81              # gravity [m s-1]
 
 zmin = -300.0         # SMB parameters
-zmax = 2200.0
-amin = -8.0
-amax = 8.0
+amin = -8.0           # [m year-1]
+amax = 12.0           # [m year-1]
 c = 2.0
 
-amp = 100.0           # Geometry oscillation parameters
 shore = 0
 
-rho = 900.            # Densities 
-rho_w = 1000.0
+rho = 900.            # ice density [kg m-3]
+rho_w = 1000.0        # water density [kg m-3]
 
 n = 3.0               # Ice material properties
 m = 1.0
-b = 1e-16**(-1./n)
+b = 1e-16**(-1./n)    # ice hardness
 eps_reg = 1e-5
 
 #########################################################
 #################      GEOMETRY     #####################
 #########################################################
 
-from scipy.interpolate import interp1d
-import numpy.random
+dx = 1000.  # [m]
+x = np.arange(-L, L + dx, dx)  # [m]
+h_max = 1000.  # [m]
+x0 = 0
+sigma_x = L / 4
 
-# Uncomment if you want random perturbations to be the same each time
-#numpy.random.seed(5)
-
-# Correlation matrix for random topography
-x = linspace(-L,L,101)
-N = len(x)
-corr_len = 2000.0
-corr = zeros((N,N))
-for i in range(N):
-    for j in range(i+1):
-        corr[i,j] = exp(-abs(x[i]-x[j])**2/corr_len**2)
-        corr[j,i] = exp(-abs(x[i]-x[j])**2/corr_len**2)
-
-# Amplitude of random perturbations
-rand_amp = 0.0
-cov = rand_amp**2 * corr
-z_noise = numpy.random.multivariate_normal(zeros(N),cov)
-iii = interp1d(x,z_noise)
 
 # Bed elevation Expression
 class Bed(Expression):
-  def eval(self,values,x):
-    values[0] = (zmax - zmin)*exp(-(x[0]+L)/(L*0.3)) + zmin - amp*(sin(4*pi*x[0]/L)) + iii(x[0])
+  def eval(self, values, x):
+    values[0] = h_max * exp(-(((x[0]-x0)**2/(2*sigma_x**2)))) + zmin
 
 # Basal traction Expression
 class Beta2(Expression):
@@ -81,15 +84,14 @@ class Beta2(Expression):
     values[0] = 2e3
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
-# Currently gamma distributed
 class Width(Expression):
   k = 1.0
   theta = 5000.0
   w_min = 3000.0
-  xmin = -45000.0
+  xmin = -L
   A = 200e6
   def eval(self,values,x):
-    values[0] = 1#(self.A/(gamma(self.k)*self.theta**self.k)*(x[0]-self.xmin)**(self.k-1)*exp(-(x[0]-self.xmin)/self.theta) + self.w_min)/self.w_min
+    values[0] = 1
 
 ##########################################################
 ################           MESH          #################
@@ -97,19 +99,19 @@ class Width(Expression):
 
 # Define a rectangular mesh
 nx = 300                                  # Number of cells
-mesh = IntervalMesh(nx,-L,3*L/4)          # Equal cell size
+mesh = IntervalMesh(nx, -L, L)            # Equal cell size
 
 X = SpatialCoordinate(mesh)               # Spatial coordinate
 
-ocean = FacetFunctionSizet(mesh,0)        # Facet function for boundary conditions
+ocean = FacetFunctionSizet(mesh, 0)       # Facet function for boundary conditions
 ds = ds[ocean] 
 
-# Label the right boundary as ocean, and the left boundary as ice divide
+# Label the left and right boundary as ocean
 for f in facets(mesh):
-    if near(f.midpoint().x(),3*L/4):
+    if near(f.midpoint().x(), L):
        ocean[f] = 1
-    if near(f.midpoint().x(),-L):
-       ocean[f] = 2
+    if near(f.midpoint().x(), -L):
+       ocean[f] = 1
 
 # Facet normals
 normal = FacetNormal(mesh)
@@ -118,7 +120,7 @@ normal = FacetNormal(mesh)
 #################  FUNCTION SPACES  #####################
 #########################################################
 
-Q = FunctionSpace(mesh,"CG",1)
+Q = FunctionSpace(mesh,"CG", 1)
 V = MixedFunctionSpace([Q]*3)           # ubar,udef,H space
 
 ze = Function(Q)                        # Zero constant function
@@ -135,14 +137,14 @@ U = Function(V)                        # Velocity function
 dU = TrialFunction(V)                  # Velocity trial function
 Phi = TestFunction(V)                  # Velocity test function
 
-u,u2,H = split(U)                       
-phi,phi1,xsi = split(Phi)
+u, u2, H = split(U)                       
+phi, phi1, xsi = split(Phi)
 
 un = Function(Q)                       # Temp velocities
 u2n = Function(Q)
 
 H0 = Function(Q)                     
-H0.vector()[:] = rho_w/rho*thklim+1e-3 # Initial thickness
+H0.vector()[:] = rho_w/rho * thklim + 1e-3 # Initial thickness
 
 theta = Constant(0.5)                  # Crank-Nicholson
 Hmid = theta*H + (1-theta)*H0
@@ -162,7 +164,20 @@ dt = Constant(0.1)                     # Constant time step (gets changed below)
 
 # Surface mass balance expression: If no feedback between elevation and SMB is desired,
 # consider interpolating an Expression instead.
-adot = (amin + (amax-amin)/(1-exp(-c))*(1.-exp(-c*((S-0)/(2000.-0)))))*grounded + (amin + (amax-amin)/(1-exp(-c))*(1.-exp(-c*(((Hmid*(1-rho/rho_w)-0)/(2000.0-0))))))*(1-grounded)
+
+# adot = (amin + (amax-amin)/(1-exp(-c))*(1.-exp(-c*((S-0)/(2000.-0)))))*grounded + (amin + (amax-amin)/(1-exp(-c))*(1.-exp(-c*(((Hmid*(1-rho/rho_w)-0)/(2000.0-0))))))*(1-grounded)
+
+# Linear SMB, will be replaced by Orographic Precip Model
+Smax = 1500.  # above Smax, adot=amax [m]
+Smin = 0.     # below Smin, adot=amin [m]
+
+# For testing, we can define SMB as an expression:
+adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+
+# SMB function interpolate from an array as provided by the Orographic Precipitation Model
+test_H = h_max * np.exp(-(((x-x0)**2/(2*sigma_x**2)))) + zmin
+smb =   amin + (amax - amin) / (Smax - Smin) * test_H
+adot_f = function_from_array(x, smb, Q, mesh)
 
 ########################################################
 #################   Numerics   #########################
@@ -214,8 +229,8 @@ u = VerticalBasis(u_,coef,dcoef)
 phi = VerticalBasis(phi_,coef,dcoef)
 
 # Quadrature points 
-points = array([0.0,0.4688,0.8302,1.0])
-weights = array([0.4876/2.,0.4317,0.2768,0.0476])
+points = np.array([0.0,0.4688,0.8302,1.0])
+weights = np.array([0.4876/2.,0.4317,0.2768,0.0476])
 
 vi = VerticalIntegrator(points,weights)
 
@@ -318,7 +333,9 @@ assigner     = FunctionAssigner(V,[Q,Q,Q])
 # Ice divide dirichlet bc
 bc = DirichletBC(V.sub(2),thklim,lambda x,on: near(x[0],-L) and on)
 
-mass_problem = NonlinearVariationalProblem(R,U,bcs=[bc],J=J,form_compiler_parameters=ffc_options)
+# No Dirichlet BCs for symmetric geometry, both sides are ocean
+# mass_problem = NonlinearVariationalProblem(R,U,bcs=[bc],J=J,form_compiler_parameters=ffc_options)
+mass_problem = NonlinearVariationalProblem(R,U,J=J,form_compiler_parameters=ffc_options)
 
 # Account for thickness positivity by using vi-newton-rsls solver from PETSc
 mass_solver = NonlinearVariationalSolver(mass_problem)
@@ -387,7 +404,7 @@ grdata = []
 
 # Time interval
 t = 0.0
-t_end = 5000.
+t_end = 50.
 dt_float = 0.5             # Set time step here
 dt.assign(dt_float)
 
