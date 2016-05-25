@@ -12,7 +12,7 @@ from linear_orog_precip import OrographicPrecipitation
 
 def function_from_array(x, y, Q, mesh):
     '''
-    Returns a function in FunctionSpace Q and mesh interpolated from a array y
+    Returns a function in FunctionSpace Q and mesh interpolated from array y
     '''
     
     dim = Q.dim()
