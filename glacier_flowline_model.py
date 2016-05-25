@@ -1,4 +1,12 @@
-# Flowline glacier model code by D. Brinkerhoff, UAF
+# ######################################################################
+# Flowline glacier model with Linear Orographic Precipitation
+#
+# Andy Aschwanden, University of Alaska Fairbanks
+#
+# this code is based on the work of:
+# glacier flow model: Doug Brinkerhoff, University of Alaska Fairbanks
+# orographic precipitation model: Leif Anderson, University of Iceland
+# ######################################################################
 
 from dolfin import *
 import numpy as np
@@ -25,8 +33,14 @@ def function_from_array(x, y, Q, mesh):
     mesh_values = f_interp(mesh_x)
     my_f  = Function(Q)
     my_f.vector()[fx_dofs] = mesh_values
+    
     return my_f
 
+
+
+##########################################################
+###############   Dolfin options       ###################
+##########################################################
 
 parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['representation'] = 'quadrature'
@@ -36,6 +50,7 @@ ffc_options = {"optimize": True, \
                "eliminate_zeros": True, \
                "precompute_basis_const": True, \
                "precompute_ip_const": True}
+
 
 ##########################################################
 ###############        CONSTANTS       ###################
@@ -80,18 +95,14 @@ class Bed(Expression):
 
 # Basal traction Expression
 class Beta2(Expression):
-  def eval(self,values,x):
+  def eval(self, values, x):
     values[0] = 2e3
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
 class Width(Expression):
-  k = 1.0
-  theta = 5000.0
-  w_min = 3000.0
-  xmin = -L
-  A = 200e6
-  def eval(self,values,x):
+  def eval(self, values, x):
     values[0] = 1
+
 
 ##########################################################
 ################           MESH          #################
@@ -120,13 +131,13 @@ normal = FacetNormal(mesh)
 #################  FUNCTION SPACES  #####################
 #########################################################
 
-Q = FunctionSpace(mesh,"CG", 1)
+Q = FunctionSpace(mesh, "CG", 1)
 V = MixedFunctionSpace([Q]*3)           # ubar,udef,H space
 
 ze = Function(Q)                        # Zero constant function
 
-B = interpolate(Bed(),Q)                # Bed elevation function
-beta2 = interpolate(Beta2(),Q)          # Basal traction function
+B = interpolate(Bed(), Q)                # Bed elevation function
+beta2 = interpolate(Beta2(), Q)          # Basal traction function
 
 #########################################################
 #################  FUNCTIONS  ###########################
@@ -149,8 +160,10 @@ H0.vector()[:] = rho_w/rho * thklim + 1e-3 # Initial thickness
 theta = Constant(0.5)                  # Crank-Nicholson
 Hmid = theta*H + (1-theta)*H0
 
+# Ice upper sufrace
 S = B + Hmid
 
+# Test and trial functions
 psi = TestFunction(Q)                  # Scalar test function
 dg = TrialFunction(Q)                  # Scalar trial function
 
@@ -165,9 +178,7 @@ dt = Constant(0.1)                     # Constant time step (gets changed below)
 # Surface mass balance expression: If no feedback between elevation and SMB is desired,
 # consider interpolating an Expression instead.
 
-# adot = (amin + (amax-amin)/(1-exp(-c))*(1.-exp(-c*((S-0)/(2000.-0)))))*grounded + (amin + (amax-amin)/(1-exp(-c))*(1.-exp(-c*(((Hmid*(1-rho/rho_w)-0)/(2000.0-0))))))*(1-grounded)
-
-# Linear SMB, will be replaced by Orographic Precip Model
+# SMB as linear function of elevation, will be replaced by Orographic Precip Model
 Smax = 1500.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
 
@@ -199,6 +210,7 @@ class VerticalBasis(object):
     def dx(self,s,x):
         return sum([u.dx(x)*c(s) for u,c in zip(self.u,self.coef)])
 
+
 # Vertical quadrature utility for integrating VerticalBasis class
 class VerticalIntegrator(object):
     def __init__(self,points,weights):
@@ -208,6 +220,7 @@ class VerticalIntegrator(object):
         return w*f(s)
     def intz(self,f):
         return sum([self.integral_term(f,s,w) for s,w in zip(self.points,self.weights)])
+
 
 # Surface elevation gradients in z for coordinate change Jacobian
 def dsdx(s):
