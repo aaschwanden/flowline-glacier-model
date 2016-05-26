@@ -11,10 +11,13 @@
 from dolfin import *
 import numpy as np
 from numpy.polynomial.legendre import leggauss
-from scipy.integrate import trapz, cumtrapz
 from scipy.interpolate import interp1d
 from pylab import argmax, where
 import pickle
+import pylab as plt
+import matplotlib
+# Force matplotlib to not use any Xwindows backend.
+matplotlib.use('Agg')
 from linear_orog_precip import OrographicPrecipitation
 
 
@@ -31,6 +34,7 @@ def function_from_array(x, y, Q, mesh):
 
     f_interp = interp1d(x, y)
     mesh_values = f_interp(mesh_x)
+    print mesh_values
     my_f  = Function(Q)
     my_f.vector()[fx_dofs] = mesh_values
     
@@ -81,8 +85,8 @@ eps_reg = 1e-5
 #################      GEOMETRY     #####################
 #########################################################
 
-dx = 1000.  # [m]
-x = np.arange(-L, L + dx, dx)  # [m]
+my_dx = 1000.  # [m]
+x = np.arange(-L, L + my_dx, my_dx)  # [m]
 h_max = 1000.  # [m]
 x0 = 0
 sigma_x = L / 4
@@ -183,12 +187,17 @@ Smax = 1500.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
 
 # For testing, we can define SMB as an expression:
-adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+# adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
 
 # SMB function interpolate from an array as provided by the Orographic Precipitation Model
+
+ela = h_max / 3.
+
 test_H = h_max * np.exp(-(((x-x0)**2/(2*sigma_x**2)))) + zmin
+smb =   amin + (amax - amin) / (Smax - Smin) * test_H * (test_H > ela) + -3 * (1 - (test_H > ela))
 smb =   amin + (amax - amin) / (Smax - Smin) * test_H
-adot_f = function_from_array(x, smb, Q, mesh)
+
+adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
 
 ########################################################
 #################   Numerics   #########################
@@ -376,8 +385,8 @@ assigner.assign(l_bound,[l_v_bound]*2+[l_thick_bound])
 assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
 
 ################## PLOTTING ##########################
-# ion()
-# fig,ax = subplots(nrows=2,sharex=True)
+# plt.ion()
+# fig, ax = plt.subplots(nrows=2,sharex=True)
 x = mesh.coordinates().ravel()
 SS = project(S)
 BB = B.compute_vertex_values()
@@ -417,7 +426,7 @@ grdata = []
 
 # Time interval
 t = 0.0
-t_end = 50.
+t_end = 2000.
 dt_float = 0.5             # Set time step here
 dt.assign(dt_float)
 
