@@ -17,7 +17,7 @@ import pickle
 import pylab as plt
 import matplotlib
 # Force matplotlib to not use any Xwindows backend.
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 from linear_orog_precip import OrographicPrecipitation
 
 
@@ -34,13 +34,24 @@ def function_from_array(x, y, Q, mesh):
 
     f_interp = interp1d(x, y)
     mesh_values = f_interp(mesh_x)
-    print mesh_values
     my_f  = Function(Q)
     my_f.vector()[fx_dofs] = mesh_values
     
     return my_f
 
 
+def array_from_function(f, Q, mesh):
+    '''
+    Returns a function in FunctionSpace Q and mesh interpolated from array y
+    '''
+    
+    dim = Q.dim()
+    N = mesh.geometry().dim()
+    mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
+    mesh_x = mesh_coor[:, 0]
+    mesh_y = f.vector().array()
+    
+    return mesh_x, mesh_y
 
 ##########################################################
 ###############   Dolfin options       ###################
@@ -68,7 +79,7 @@ g = 9.81              # gravity [m s-1]
 
 zmin = -300.0         # SMB parameters
 amin = -8.0           # [m year-1]
-amax = 12.0           # [m year-1]
+amax = 15.0           # [m year-1]
 c = 2.0
 
 shore = 0
@@ -186,18 +197,24 @@ dt = Constant(0.1)                     # Constant time step (gets changed below)
 Smax = 1500.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
 
-# For testing, we can define SMB as an expression:
-# adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
-
 # SMB function interpolate from an array as provided by the Orographic Precipitation Model
 
-ela = h_max / 3.
+# ela = h_max / 3.
 
-test_H = h_max * np.exp(-(((x-x0)**2/(2*sigma_x**2)))) + zmin
-smb =   amin + (amax - amin) / (Smax - Smin) * test_H * (test_H > ela) + -3 * (1 - (test_H > ela))
-smb =   amin + (amax - amin) / (Smax - Smin) * test_H
+# test_H = h_max * np.exp(-(((x-x0)**2/(2*sigma_x**2)))) + zmin
+# smb =   amin + (amax - amin) / (Smax - Smin) * test_H * (test_H > ela) + -3 * (1 - (test_H > ela))
+# smb =   amin + (amax - amin) / (Smax - Smin) * test_H
 
-adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+# adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+
+# # For testing, we can define SMB as an expression:
+#adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+
+x_a, y_a = array_from_function(project(S, Q), Q, mesh)
+smb =   amin + (amax - amin) / (Smax - Smin) * y_a
+# smb = OrographicPrecipitation(...)
+adot = function_from_array(x_a, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+
 
 ########################################################
 #################   Numerics   #########################
@@ -343,8 +360,8 @@ b_g = rhs(R_g)
 #####################################################################
 
 # For moving data between vector functions and scalar functions 
-assigner_inv = FunctionAssigner([Q,Q,Q],V)
-assigner     = FunctionAssigner(V,[Q,Q,Q])
+assigner_inv = FunctionAssigner([Q,Q,Q], V)
+assigner     = FunctionAssigner(V, [Q,Q,Q])
 
 #####################################################################
 ######################  Variational Solvers  ########################
@@ -385,27 +402,27 @@ assigner.assign(l_bound,[l_v_bound]*2+[l_thick_bound])
 assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
 
 ################## PLOTTING ##########################
-# plt.ion()
-# fig, ax = plt.subplots(nrows=2,sharex=True)
+plt.ion()
+fig, ax = plt.subplots(nrows=2,sharex=True)
 x = mesh.coordinates().ravel()
 SS = project(S)
 BB = B.compute_vertex_values()
-# ph0, = ax[0].plot(x,BB,'b-')
+ph0, = ax[0].plot(x,BB,'b-')
 
 HH = H0.compute_vertex_values()
 
-# ph1, = ax[0].plot(x,BB+HH,'g-')
-# ph5, = ax[0].plot(x,BB+HH,'r-')
-# ax[0].set_xlim(-L,L/2.)
-# ax[0].set_ylim(-1000,2500)
+ph1, = ax[0].plot(x,BB+HH,'g-')
+ph5, = ax[0].plot(x,BB+HH,'r-')
+ax[0].set_xlim(-L,L/2.)
+ax[0].set_ylim(-200,1500)
 
 us = project(u(0))
 ub = project(u(1))
-# ph3, = ax[1].plot(x,us.compute_vertex_values())
-# ph4, = ax[1].plot(x,ub.compute_vertex_values())
+ph3, = ax[1].plot(x,us.compute_vertex_values())
+ph4, = ax[1].plot(x,ub.compute_vertex_values())
 
-# ax[1].set_xlim(-L,L/2.)
-# ax[1].set_ylim(0,400)
+ax[1].set_xlim(-L, L)
+ax[1].set_ylim(-200, 200)
 
 # draw()
 mass = []
@@ -426,8 +443,8 @@ grdata = []
 
 # Time interval
 t = 0.0
-t_end = 2000.
-dt_float = 0.5             # Set time step here
+t_end = 5000.
+dt_float = 1             # Set time step here
 dt.assign(dt_float)
 
 assigner.assign(U,[ze,ze,H0])
@@ -437,7 +454,7 @@ while t<t_end:
     time.append(t)
 
     # Update grounding line position
-    solve(A_g == b_g,grounded)
+    solve(A_g == b_g, grounded)
     grounded.vector()[0] = 1
 
     # Try solving with last solution as initial guess for next solution
@@ -458,13 +475,13 @@ while t<t_end:
     us = project(u(0))
     ub = project(u(1))
 
-    # ph0.set_ydata(BB)
-    # ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
-    # ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
+    ph0.set_ydata(BB)
+    ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
+    ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
 
-    # ph3.set_ydata(us.compute_vertex_values())
-    # ph4.set_ydata(ub.compute_vertex_values())
-    # draw()
+    ph3.set_ydata(us.compute_vertex_values())
+    ph4.set_ydata(ub.compute_vertex_values())
+    plt.draw()
 
     # Save values at each time step
     tdata.append(t)
@@ -475,8 +492,12 @@ while t<t_end:
     ubdata.append(ub.vector().array())
     grdata.append(grounded.vector().array())
     
-    print t,H0.vector().max()
-    t+=dt_float
+    print t, H0.vector().max()
+
+    smb =   amin + (amax - amin) / (Smax - Smin) * project(S, Q).vector().array()
+    # smb = OrographicPrecipitation(...)
+    adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+    t += dt_float
 
 # Save relevant data to pickle
 pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata),open('good_filename_here.p','w'))
