@@ -99,7 +99,7 @@ if __name__ == "__main__":
     
     dx = dy = 1000.
     L = 50.e3
-    x, y = np.arange(-L, L, dx), np.arange(-L, L, dx)
+    x, y = np.arange(-L, L, dx), np.arange(-L, L, dy)
     nx, nx = len(x), len(y)
     h_max = L / 50
     x0 = y0 = 0

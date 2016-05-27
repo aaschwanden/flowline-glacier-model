@@ -101,7 +101,7 @@ g = 9.81              # gravity [m s-1]
 
 zmin = -300.0         # SMB parameters
 amin = -8.0           # [m year-1]
-amax = 15.0           # [m year-1]
+amax =  8.0           # [m year-1]
 c = 2.0
 
 shore = 0
@@ -216,37 +216,34 @@ dt = Constant(0.1)                     # Constant time step (gets changed below)
 # consider interpolating an Expression instead.
 
 # SMB as linear function of elevation, will be replaced by Orographic Precip Model
-Smax = 1500.  # above Smax, adot=amax [m]
+Smax = 1250.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
 
 # SMB function interpolate from an array as provided by the Orographic Precipitation Model
 
-S_ela = 750
-da_acc = amax / (Smax - Smin)
-da_abl = -amin / (Smax - Smin)
 
 # # For testing, we can define SMB as an expression:
 if precip_model in 'linear':
     adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
-    # adot = da_acc * (S - S_ela) * (S > S_ela) + da_abl * (S - S_ela) * (S <= S_ela) * grounded + amin * (1 - grounded)
 elif precip_model in 'orog':
-    x_a, y_a = array_from_function(project(S, Q), Q, mesh)
-    
-    X, Y = np.meshgrid(x_a, range(21))
-    Orography = np.tile(y_a, (21, 1))
-    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
-    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
+    x_a, y_a = array_from_function(project(B, Q), Q, mesh)
+   
+    XX, YY = np.meshgrid(x_a, range(3))
+    Orography = np.tile(y_a, (3, 1))
 
-    OP = OrographicPrecipitation(X, Y, UU, VV, Orography, physical_constants)
+    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
+    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])    
+    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
 
     inunit = OP.P_units
     outunit = 'm year-1'
     in_unit  = Unit(inunit)
     out_unit  = Unit(outunit)
-    P_myear = in_unit.convert(OP.P, out_unit)
+    P = in_unit.convert(OP.P, out_unit)
+    P = P[1, :] * 5
+    # P[y_a < S_ela] = amin + da_abl * (y_a - S_ela)
 
-
-    smb_S =  function_from_array(x_a, amin + (amax - amin) / (Smax - Smin) * y_a, Q, mesh)
+    smb_S =  function_from_array(x_a, P, Q, mesh)
     smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
     adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
 else:
@@ -311,7 +308,7 @@ phi = VerticalBasis(phi_,coef,dcoef)
 points = np.array([0.0,0.4688,0.8302,1.0])
 weights = np.array([0.4876/2.,0.4317,0.2768,0.0476])
 
-vi = VerticalIntegrator(points,weights)
+vi = VerticalIntegrator(points, weights)
 
 ########################################################
 #################   Momentum Balance    ################
@@ -375,7 +372,7 @@ area = Hmid*width
 R += ((H-H0)/dt*xsi  - xsi.dx(0)*U[0]*Hmid + D*xsi.dx(0)*Hmid.dx(0) - (adot - un*H0/width*width.dx(0))*xsi)*dx  + U[0]*area*xsi*ds(1)
 
 # Jacobian of coupled momentum-mass system
-J = derivative(R,U,dU)
+J = derivative(R, U, dU)
 
 #####################################################################
 ############################  GL Dynamics  ##########################
@@ -414,7 +411,8 @@ bc = DirichletBC(V.sub(2),thklim,lambda x,on: near(x[0],-L) and on)
 
 # No Dirichlet BCs for symmetric geometry, both sides are ocean
 # mass_problem = NonlinearVariationalProblem(R,U,bcs=[bc],J=J,form_compiler_parameters=ffc_options)
-mass_problem = NonlinearVariationalProblem(R,U,J=J,form_compiler_parameters=ffc_options)
+mass_problem = NonlinearVariationalProblem(R, U, J=J,
+                                           form_compiler_parameters=ffc_options)
 
 # Account for thickness positivity by using vi-newton-rsls solver from PETSc
 mass_solver = NonlinearVariationalSolver(mass_problem)
@@ -443,7 +441,7 @@ assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
 
 ################## PLOTTING ##########################
 plt.ion()
-fig, ax = plt.subplots(nrows=2,sharex=True)
+fig, ax = plt.subplots(nrows=3, sharex=True)
 x = mesh.coordinates().ravel()
 SS = project(S)
 BB = B.compute_vertex_values()
@@ -451,19 +449,22 @@ ph0, = ax[0].plot(x,BB,'b-')
 
 HH = H0.compute_vertex_values()
 
-ph1, = ax[0].plot(x,BB+HH,'g-')
-ph5, = ax[0].plot(x,BB+HH,'r-')
+ph1, = ax[0].plot(x, BB+HH,'g-')
+ph5, = ax[0].plot(x, BB+HH,'r-')
 ax[0].set_xlim(-L,L/2.)
 ax[0].set_ylim(-200,1500)
 
 us = project(u(0))
 ub = project(u(1))
-ph3, = ax[1].plot(x,us.compute_vertex_values())
-ph4, = ax[1].plot(x,ub.compute_vertex_values())
-
+ph3, = ax[1].plot(x, us.compute_vertex_values())
+ph4, = ax[1].plot(x, ub.compute_vertex_values())
 ax[1].set_xlim(-L, L)
 ax[1].set_ylim(-200, 200)
 
+adot_p = project(adot, Q).vector().array()
+ph6, = ax[2].plot(x, adot_p)
+ax[2].set_xlim(-L, L)
+ax[2].set_ylim(-8, 8)
 # draw()
 mass = []
 time = []
@@ -476,6 +477,7 @@ usdata = []
 ubdata = []
 gldata = []
 grdata = []
+adotdata = []
 
 ######################################################################
 #######################   SOLUTION   #################################
@@ -483,11 +485,11 @@ grdata = []
 
 # Time interval
 t = 0.0
-t_end = 1000.
-dt_float = 1             # Set time step here
+t_end = 5000.
+dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
-assigner.assign(U,[ze,ze,H0])
+assigner.assign(U, [ze,ze,H0])
 
 # Loop over time
 while t < t_end:
@@ -521,8 +523,31 @@ while t < t_end:
 
     ph3.set_ydata(us.compute_vertex_values())
     ph4.set_ydata(ub.compute_vertex_values())
+    adot_p = project(adot, Q).vector().array()
+    ph6.set_ydata(adot_p)
     plt.draw()
 
+    if precip_model in 'orog':
+        x_a, y_a = array_from_function(project(B, Q), Q, mesh)
+        XX, YY = np.meshgrid(x_a, range(3))
+        Orography = np.tile(y_a, (3, 1))
+
+        UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
+        VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])    
+        OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
+
+        inunit = OP.P_units
+        outunit = 'm year-1'
+        in_unit  = Unit(inunit)
+        out_unit  = Unit(outunit)
+        P = in_unit.convert(OP.P, out_unit) * 5
+        P = P[1, :]
+        #P[y_a < S_ela] = amin + da_abl * (y_a - S_ela)
+
+        smb_S =  function_from_array(x_a, P, Q, mesh)
+        smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
+        adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
+        
     # Save values at each time step
     tdata.append(t)
     Hdata.append(H0.vector().array())
@@ -531,18 +556,12 @@ while t < t_end:
     usdata.append(us.vector().array())
     ubdata.append(ub.vector().array())
     grdata.append(grounded.vector().array())
+    adotdata.append(adot_p)
     
-    print t, H0.vector().max()
-
-    if precip_model in 'orog':
-        x_a, y_a = array_from_function(project(S, Q), Q, mesh)
-        smb_S =  function_from_array(x_a, amin + (amax - amin) / (Smax - Smin) * y_a, Q, mesh)
-        smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
-        adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
-        
+    print t, H0.vector().max()        
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata), open('good_filename_here.p','w'))
+pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open('good_filename_here.p','w'))
 pickle.dump((x, H0.vector().array()), open('init.p','w'))
 
