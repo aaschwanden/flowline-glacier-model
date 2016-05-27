@@ -24,7 +24,7 @@ class OrographicPrecipitation(object):
         self.Orography = Orography
         self.physical_constants = physical_constants
         self.dx = np.diff(X)[0,0]
-        self.dy = np.diff(Y)[0,0]
+        self.dy = np.diff(Y, axis=0)[0,0]
         self.nx = len(Orography[1,:])
         self.ny = len(Orography)
 
