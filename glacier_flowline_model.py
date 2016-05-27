@@ -20,6 +20,7 @@ import matplotlib
 # Force matplotlib to not use any Xwindows backend.
 #matplotlib.use('Agg')
 from linear_orog_precip import OrographicPrecipitation
+from cf_units import Unit
 
 parser = ArgumentParser()
 parser.add_argument('-i', dest='init_file',
@@ -30,7 +31,17 @@ parser.add_argument('--smb', dest='precip_model',
 options = parser.parse_args()
 init_file = options.init_file
 precip_model = options.precip_model
-    
+
+physical_constants = dict()
+physical_constants['tau_c'] = 1000  # conversion time [s]
+physical_constants['tau_f'] = 2000  # fallout time [s]
+physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
+physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
+physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
+physical_constants['Hw'] = 1000    # vapor scale height
+physical_constants['u'] = -5       # x-component of wind vector [m s-1]
+physical_constants['v'] = 0        # y-component of wind vector [m s-1]
+
 
 def function_from_array(x, y, Q, mesh):
     '''
@@ -210,20 +221,31 @@ Smin = 0.     # below Smin, adot=amin [m]
 
 # SMB function interpolate from an array as provided by the Orographic Precipitation Model
 
-# ela = h_max / 3.
-
-# test_H = h_max * np.exp(-(((x-x0)**2/(2*sigma_x**2)))) + zmin
-# smb =   amin + (amax - amin) / (Smax - Smin) * test_H * (test_H > ela) + -3 * (1 - (test_H > ela))
-# smb =   amin + (amax - amin) / (Smax - Smin) * test_H
-
-# adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+S_ela = 750
+da_acc = amax / (Smax - Smin)
+da_abl = -amin / (Smax - Smin)
 
 # # For testing, we can define SMB as an expression:
 if precip_model in 'linear':
-    smb = amin + (amax - amin) / (Smax - Smin)
-    adot = smb * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+    adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+    # adot = da_acc * (S - S_ela) * (S > S_ela) + da_abl * (S - S_ela) * (S <= S_ela) * grounded + amin * (1 - grounded)
 elif precip_model in 'orog':
     x_a, y_a = array_from_function(project(S, Q), Q, mesh)
+    
+    X, Y = np.meshgrid(x_a, range(21))
+    Orography = np.tile(y_a, (21, 1))
+    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
+    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
+
+    OP = OrographicPrecipitation(X, Y, UU, VV, Orography, physical_constants)
+
+    inunit = OP.P_units
+    outunit = 'm year-1'
+    in_unit  = Unit(inunit)
+    out_unit  = Unit(outunit)
+    P_myear = in_unit.convert(OP.P, out_unit)
+
+
     smb_S =  function_from_array(x_a, amin + (amax - amin) / (Smax - Smin) * y_a, Q, mesh)
     smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
     adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)

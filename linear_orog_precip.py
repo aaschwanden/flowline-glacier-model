@@ -36,6 +36,8 @@ class OrographicPrecipitation(object):
         physical_constants = self.physical_constants
         Orography = self.Orography
         Orography_fft = np.fft.fft2(Orography)
+        dx = self.dx
+        dy = self.dy
         nx = self.nx
         ny = self.ny
         U = self.U
