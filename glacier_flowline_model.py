@@ -9,6 +9,7 @@
 # ######################################################################
 
 from dolfin import *
+from argparse import ArgumentParser
 import numpy as np
 from numpy.polynomial.legendre import leggauss
 from scipy.interpolate import interp1d
@@ -20,6 +21,16 @@ import matplotlib
 #matplotlib.use('Agg')
 from linear_orog_precip import OrographicPrecipitation
 
+parser = ArgumentParser()
+parser.add_argument('-i', dest='init_file',
+                    help='File with inital state', default=None)
+parser.add_argument('--smb', dest='precip_model',
+                    choices=['linear', 'orog'],
+                    help='Precip model', default='linear')
+options = parser.parse_args()
+init_file = options.init_file
+precip_model = options.precip_model
+    
 
 def function_from_array(x, y, Q, mesh):
     '''
@@ -169,7 +180,7 @@ phi, phi1, xsi = split(Phi)
 un = Function(Q)                       # Temp velocities
 u2n = Function(Q)
 
-H0 = Function(Q)                     
+H0 = Function(Q)
 H0.vector()[:] = rho_w/rho * thklim + 1e-3 # Initial thickness
 
 theta = Constant(0.5)                  # Crank-Nicholson
@@ -208,13 +219,20 @@ Smin = 0.     # below Smin, adot=amin [m]
 # adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
 
 # # For testing, we can define SMB as an expression:
-#adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
-
-x_a, y_a = array_from_function(project(S, Q), Q, mesh)
-smb =   amin + (amax - amin) / (Smax - Smin) * y_a
-# smb = OrographicPrecipitation(...)
-adot = function_from_array(x_a, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
-
+if precip_model in 'linear':
+    smb = amin + (amax - amin) / (Smax - Smin)
+    adot = smb * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+elif precip_model in 'orog':
+    x_a, y_a = array_from_function(project(S, Q), Q, mesh)
+    smb_S =  function_from_array(x_a, amin + (amax - amin) / (Smax - Smin) * y_a, Q, mesh)
+    smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
+    adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
+else:
+    print('precip model {} not supported'.format(precip_model))
+    
+if init_file is not None:
+    xinit, Hinit = pickle.load(open(init_file, 'rb'))
+    H0 = function_from_array(xinit, Hinit, Q, mesh)
 
 ########################################################
 #################   Numerics   #########################
@@ -443,14 +461,14 @@ grdata = []
 
 # Time interval
 t = 0.0
-t_end = 5000.
+t_end = 1000.
 dt_float = 1             # Set time step here
 dt.assign(dt_float)
 
 assigner.assign(U,[ze,ze,H0])
 
 # Loop over time
-while t<t_end:
+while t < t_end:
     time.append(t)
 
     # Update grounding line position
@@ -459,11 +477,11 @@ while t<t_end:
 
     # Try solving with last solution as initial guess for next solution
     try:
-        mass_solver.solve(l_bound,u_bound)
+        mass_solver.solve(l_bound, u_bound)
     # If this breaks, set initial guess to zero and try again
     except:
-        assigner.assign(U,[ze,ze,H0])
-        mass_solver.solve(l_bound,u_bound)
+        assigner.assign(U,[ze, ze, H0])
+        mass_solver.solve(l_bound, u_bound)
 
     # Set previous time step variables
     assigner_inv.assign([un,u2n,H0],U)
@@ -494,11 +512,15 @@ while t<t_end:
     
     print t, H0.vector().max()
 
-    smb =   amin + (amax - amin) / (Smax - Smin) * project(S, Q).vector().array()
-    # smb = OrographicPrecipitation(...)
-    adot = function_from_array(x, smb, Q, mesh) * (grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+    if precip_model in 'orog':
+        x_a, y_a = array_from_function(project(S, Q), Q, mesh)
+        smb_S =  function_from_array(x_a, amin + (amax - amin) / (Smax - Smin) * y_a, Q, mesh)
+        smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
+        adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
+        
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata),open('good_filename_here.p','w'))
+pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata), open('good_filename_here.p','w'))
+pickle.dump((x, H0.vector().array()), open('init.p','w'))
 
