@@ -29,7 +29,7 @@ class OrographicPrecipitation(object):
         self.ny = len(Orography)
 
         self.P = self._compute_precip()
-        self.P_units = 'm s-1'
+        self.P_units = 'm year-1'
         
     def _compute_precip(self):
 
@@ -82,8 +82,8 @@ class OrographicPrecipitation(object):
         # Eqn. 6
         y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle) , np.multiply(cmath.sqrt(-1) , np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
-
-        P = np.multiply(np.real(y3), 1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
+        spy = 31556925.9747
+        P = np.multiply(np.real(y3), spy*1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
         P[P<0] = 0
         P[Orography<1] = 0
 
@@ -122,16 +122,10 @@ if __name__ == "__main__":
 
     OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
 
-    inunit = OP.P_units
-    outunit = 'm year-1'
-    in_unit  = Unit(inunit)
-    out_unit  = Unit(outunit)
-    P_myear = in_unit.convert(OP.P, out_unit)
-
     plt.figure()
-    plt.imshow(P_myear)
+    plt.imshow(OP.P)
     cbar = plt.colorbar()
-    cbar.set_label('Precip ({})'.format(outunit), rotation=270, labelpad=20)
+    cbar.set_label('Precip ({})'.format(OP.units), rotation=270, labelpad=20)
     plt.show()
 
 

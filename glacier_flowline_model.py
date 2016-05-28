@@ -12,24 +12,25 @@ from dolfin import *
 from argparse import ArgumentParser
 import numpy as np
 from numpy.polynomial.legendre import leggauss
+import matplotlib
+matplotlib.use('WXAgg')
 from scipy.interpolate import interp1d
-from pylab import argmax, where
 import pickle
 import pylab as plt
-import matplotlib
-# Force matplotlib to not use any Xwindows backend.
-#matplotlib.use('Agg')
 from linear_orog_precip import OrographicPrecipitation
 from cf_units import Unit
 
 parser = ArgumentParser()
 parser.add_argument('-i', dest='init_file',
                     help='File with inital state', default=None)
+parser.add_argument('-o', dest='out_file',
+                    help='Output file', default='out.p')
 parser.add_argument('--smb', dest='precip_model',
                     choices=['linear', 'orog'],
                     help='Precip model', default='linear')
 options = parser.parse_args()
 init_file = options.init_file
+out_file = options.out_file
 precip_model = options.precip_model
 
 physical_constants = dict()
@@ -95,7 +96,7 @@ ffc_options = {"optimize": True, \
 
 L = 50000.            # Length scale [m]
 
-spy = 60**2*24*365    # seconds per year [s year-1]
+spy = 31556925.9747   # seconds per year [s year-1]
 thklim = 5.0          # Minimum thickness [m]
 g = 9.81              # gravity [m s-1]
 
@@ -485,7 +486,7 @@ adotdata = []
 
 # Time interval
 t = 0.0
-t_end = 5000.
+t_end = 200.
 dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
@@ -562,6 +563,26 @@ while t < t_end:
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open('good_filename_here.p','w'))
-pickle.dump((x, H0.vector().array()), open('init.p','w'))
+pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file, 'w'))
+pickle.dump((x, H0.vector().array()), open('init_' + out_file, 'w'))
+
+import matplotlib.animation as animation
+
+def animate(i):
+    line.set_ydata(Bdata[i] + Hdata[i])  # update the data
+    return line,
+
+
+# Init only required for blitting to give a clean slate.
+def init():
+    line.set_ydata(np.ma.array(x, mask=True))
+    return line,
+
+fig, ax = plt.subplots()
+line, = ax.plot(x, Bdata[0])
+line, = ax.plot(x, Bdata[0] + Hdata[0])
+
+ani = animation.FuncAnimation(fig, animate, len(Hdata),
+                              interval=1000)
+plt.show()
 
