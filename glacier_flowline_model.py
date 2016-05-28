@@ -488,7 +488,7 @@ adotdata = []
 
 # Time interval
 t = 0.0
-t_end = 100.
+t_end = 2000.
 dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
@@ -569,20 +569,24 @@ while t < t_end:
 pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file, 'w'))
 pickle.dump((x, H0.vector().array()), open('init_' + out_file, 'w'))
 
-import pylab as plt
-import numpy as np
+# import pylab as plt
+# import numpy as np
 import matplotlib.animation as animation
 
-x = np.array(range(-50, 50))
-y = np.tile(x, (50, 1))
+# x = np.array(range(-50, 50))
+# y = np.tile(x, (50, 1))
 
-for k in range(50):
-    y[k,:] = y[k,:] * np.sin(k)
+# for k in range(50):
+#     y[k,:] = y[k,:] * np.sin(k)
 
 #y = y.transpose()
 
+my_S = np.zeros((len(x), len(Hdata)))
+for k in range(len(Hdata)):
+    my_S[:, k] = Bdata[k] + Hdata[k]
+    
 def animate(i):
-    line.set_ydata(y[i, :])  # update the data
+    line.set_ydata(my_S[:,i])  # update the data
     return line,
 
 # Init only required for blitting to give a clean slate.
@@ -591,10 +595,14 @@ def init():
     return line,
 
 fig, ax = plt.subplots()
-ax.set_ylim(-60, 60)
-line, = ax.plot(x, y[0, :], 'k')
+ax.set_ylim(-200, 1500)
+ax.plot(x, Bdata[0], 'k')
+ax.plot(x, my_S[:,0], 'g')
+line, = ax.plot(x, my_S[:,0], 'b')
 
-ani = animation.FuncAnimation(fig, animate, frames=range(50), init_func=init,
-                              interval=1000, blit=True)
+ani = animation.FuncAnimation(fig, animate,
+                              frames=len(Hdata),
+                              init_func=init,
+                              interval=500, blit=True)
 plt.show()
 
