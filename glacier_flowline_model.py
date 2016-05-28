@@ -24,7 +24,7 @@ parser = ArgumentParser()
 parser.add_argument('-i', dest='init_file',
                     help='File with inital state', default=None)
 parser.add_argument('-o', dest='out_file',
-                    help='Output file', default='out.p')
+                    help='Output file', default='out')
 parser.add_argument('--smb', dest='precip_model',
                     choices=['linear', 'orog'],
                     help='Precip model', default='linear')
@@ -215,7 +215,7 @@ dt = Constant(0.1)                     # Constant time step (gets changed below)
 
 Smax = 1250.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
-Sela = 600.
+Sela = 500.
     
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
@@ -481,7 +481,7 @@ adotdata = []
 
 # Time interval
 t = 0.0
-t_end = 2000.
+t_end = 5000.
 dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
@@ -558,8 +558,8 @@ while t < t_end:
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file, 'w'))
-pickle.dump((x, H0.vector().array()), open('init_' + out_file, 'w'))
+pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file + '.p', 'w'))
+pickle.dump((x, H0.vector().array()), open('init_' + out_file + '.p', 'w'))
 
 def animate(i):
     line_h.set_ydata(Bdata[i]+Hdata[i])  # update the data
@@ -583,5 +583,6 @@ ani = animation.FuncAnimation(fig, animate,
                               frames=len(Hdata),
                               init_func=init,
                               interval=2, blit=True)
+ani.save(out_file + '.mp4')
 plt.show()
 
