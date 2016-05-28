@@ -12,6 +12,7 @@ from dolfin import *
 from argparse import ArgumentParser
 import numpy as np
 import matplotlib
+import matplotlib.animation as animation
 #matplotlib.use('WXAgg')
 from scipy.interpolate import interp1d
 import pickle
@@ -212,19 +213,12 @@ gl = Constant(0)                       # Scalar grounding line
 
 dt = Constant(0.1)                     # Constant time step (gets changed below)
 
-# Surface mass balance expression: If no feedback between elevation and SMB is desired,
-# consider interpolating an Expression instead.
-
-# SMB as linear function of elevation, will be replaced by Orographic Precip Model
 Smax = 1250.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
-
-# SMB function interpolate from an array as provided by the Orographic Precipitation Model
-
-
-# # For testing, we can define SMB as an expression:
+Sela = 600.
+    
 if precip_model in 'linear':
-    adot = amin + (amax - amin) / (Smax - Smin) * (S * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded))
+    adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
 elif precip_model in 'orog':
     x_a, y_a = array_from_function(project(B, Q), Q, mesh)
    
@@ -240,12 +234,11 @@ elif precip_model in 'orog':
     in_unit  = Unit(inunit)
     out_unit  = Unit(outunit)
     P = in_unit.convert(OP.P, out_unit)
-    P = P[1, :] * 5
-    # P[y_a < S_ela] = amin + da_abl * (y_a - S_ela)
+    P = P[1, :] * 10
 
     smb_S =  function_from_array(x_a, P, Q, mesh)
-    smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
-    adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
+    adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
+
 else:
     print('precip model {} not supported'.format(precip_model))
     
@@ -544,13 +537,12 @@ while t < t_end:
         outunit = 'm year-1'
         in_unit  = Unit(inunit)
         out_unit  = Unit(outunit)
-        P = in_unit.convert(OP.P, out_unit) * 5
+        P = in_unit.convert(OP.P, out_unit) * 10
         P = P[1, :]
         #P[y_a < S_ela] = amin + da_abl * (y_a - S_ela)
 
         smb_S =  function_from_array(x_a, P, Q, mesh)
-        smb_Hmid = amin + (amax - amin) / (Smax - Smin) * Hmid
-        adot = smb_S * grounded + smb_Hmid * (1 - rho / rho_w) * (1 - grounded)
+        adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
         
     # Save values at each time step
     tdata.append(t)
@@ -569,40 +561,27 @@ while t < t_end:
 pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file, 'w'))
 pickle.dump((x, H0.vector().array()), open('init_' + out_file, 'w'))
 
-# import pylab as plt
-# import numpy as np
-import matplotlib.animation as animation
-
-# x = np.array(range(-50, 50))
-# y = np.tile(x, (50, 1))
-
-# for k in range(50):
-#     y[k,:] = y[k,:] * np.sin(k)
-
-#y = y.transpose()
-
-my_S = np.zeros((len(x), len(Hdata)))
-for k in range(len(Hdata)):
-    my_S[:, k] = Bdata[k] + Hdata[k]
-    
 def animate(i):
-    line.set_ydata(my_S[:,i])  # update the data
-    return line,
+    line_h.set_ydata(Bdata[i]+Hdata[i])  # update the data
+    line_smb.set_ydata(adotdata[i])  # update the data
+    return line_h, line_smb,
 
 # Init only required for blitting to give a clean slate.
 def init():
-    line.set_ydata(np.ma.array(x, mask=True))
-    return line,
+    line_h.set_ydata(np.ma.array(x, mask=True))
+    line_smb.set_ydata(np.ma.array(x, mask=True))
+    return line_h, line_smb
 
-fig, ax = plt.subplots()
-ax.set_ylim(-200, 1500)
-ax.plot(x, Bdata[0], 'k')
-ax.plot(x, my_S[:,0], 'g')
-line, = ax.plot(x, my_S[:,0], 'b')
+fig, ax = plt.subplots(nrows=2, sharex=True)
+ax[0].set_ylim(-300, 1500)
+ax[0].plot(x, Bdata[0], 'k')
+line_h,  = ax[0].plot(x, Bdata[0]+Hdata[0], 'b')
+line_smb, = ax[1].plot(x, adotdata[0])
+ax[1].set_ylim(-8, 8)
 
 ani = animation.FuncAnimation(fig, animate,
                               frames=len(Hdata),
                               init_func=init,
-                              interval=500, blit=True)
+                              interval=2, blit=True)
 plt.show()
 
