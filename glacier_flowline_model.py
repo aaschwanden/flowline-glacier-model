@@ -11,9 +11,8 @@
 from dolfin import *
 from argparse import ArgumentParser
 import numpy as np
-from numpy.polynomial.legendre import leggauss
 import matplotlib
-matplotlib.use('WXAgg')
+#matplotlib.use('WXAgg')
 from scipy.interpolate import interp1d
 import pickle
 import pylab as plt
@@ -441,32 +440,35 @@ assigner.assign(l_bound,[l_v_bound]*2+[l_thick_bound])
 assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
 
 ################## PLOTTING ##########################
-plt.ion()
-fig, ax = plt.subplots(nrows=3, sharex=True)
+# plt.ion()
+# fig, ax = plt.subplots(nrows=3, sharex=True)
+
 x = mesh.coordinates().ravel()
 SS = project(S)
 BB = B.compute_vertex_values()
-ph0, = ax[0].plot(x,BB,'b-')
+# ph0, = ax[0].plot(x,BB,'b-')
 
 HH = H0.compute_vertex_values()
 
-ph1, = ax[0].plot(x, BB+HH,'g-')
-ph5, = ax[0].plot(x, BB+HH,'r-')
-ax[0].set_xlim(-L,L/2.)
-ax[0].set_ylim(-200,1500)
+# ph1, = ax[0].plot(x, BB+HH,'g-')
+# ph5, = ax[0].plot(x, BB+HH,'r-')
+# ax[0].set_xlim(-L,L/2.)
+# ax[0].set_ylim(-200,1500)
 
 us = project(u(0))
 ub = project(u(1))
-ph3, = ax[1].plot(x, us.compute_vertex_values())
-ph4, = ax[1].plot(x, ub.compute_vertex_values())
-ax[1].set_xlim(-L, L)
-ax[1].set_ylim(-200, 200)
+# ph3, = ax[1].plot(x, us.compute_vertex_values())
+# ph4, = ax[1].plot(x, ub.compute_vertex_values())
+# ax[1].set_xlim(-L, L)
+# ax[1].set_ylim(-200, 200)
 
 adot_p = project(adot, Q).vector().array()
-ph6, = ax[2].plot(x, adot_p)
-ax[2].set_xlim(-L, L)
-ax[2].set_ylim(-8, 8)
-# draw()
+# ph6, = ax[2].plot(x, adot_p)
+# ax[2].set_xlim(-L, L)
+# ax[2].set_ylim(-8, 8)
+
+# plt.draw()
+
 mass = []
 time = []
 
@@ -486,7 +488,7 @@ adotdata = []
 
 # Time interval
 t = 0.0
-t_end = 200.
+t_end = 100.
 dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
@@ -518,15 +520,16 @@ while t < t_end:
     us = project(u(0))
     ub = project(u(1))
 
-    ph0.set_ydata(BB)
-    ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
-    ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
+    # ph0.set_ydata(BB)
+    # ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
+    # ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
 
-    ph3.set_ydata(us.compute_vertex_values())
-    ph4.set_ydata(ub.compute_vertex_values())
+    # ph3.set_ydata(us.compute_vertex_values())
+    # ph4.set_ydata(ub.compute_vertex_values())
     adot_p = project(adot, Q).vector().array()
-    ph6.set_ydata(adot_p)
-    plt.draw()
+
+    # ph6.set_ydata(adot_p)
+    # plt.draw()
 
     if precip_model in 'orog':
         x_a, y_a = array_from_function(project(B, Q), Q, mesh)
@@ -566,12 +569,21 @@ while t < t_end:
 pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file, 'w'))
 pickle.dump((x, H0.vector().array()), open('init_' + out_file, 'w'))
 
+import pylab as plt
+import numpy as np
 import matplotlib.animation as animation
 
-def animate(i):
-    line.set_ydata(Bdata[i] + Hdata[i])  # update the data
-    return line,
+x = np.array(range(-50, 50))
+y = np.tile(x, (50, 1))
 
+for k in range(50):
+    y[k,:] = y[k,:] * np.sin(k)
+
+#y = y.transpose()
+
+def animate(i):
+    line.set_ydata(y[i, :])  # update the data
+    return line,
 
 # Init only required for blitting to give a clean slate.
 def init():
@@ -579,10 +591,10 @@ def init():
     return line,
 
 fig, ax = plt.subplots()
-line, = ax.plot(x, Bdata[0])
-line, = ax.plot(x, Bdata[0] + Hdata[0])
+ax.set_ylim(-60, 60)
+line, = ax.plot(x, y[0, :], 'k')
 
-ani = animation.FuncAnimation(fig, animate, len(Hdata),
-                              interval=1000)
+ani = animation.FuncAnimation(fig, animate, frames=range(50), init_func=init,
+                              interval=1000, blit=True)
 plt.show()
 
