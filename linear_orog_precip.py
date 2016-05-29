@@ -84,7 +84,7 @@ class OrographicPrecipitation(object):
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), spy*1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
-        P[P<0] = 0
+        # P[P<0] = 0
 
         return P
 
@@ -100,17 +100,18 @@ if __name__ == "__main__":
     L = 50.e3
     x, y = np.arange(-L, L, dx), np.arange(-L, L, dy)
     nx, nx = len(x), len(y)
-    h_max = 2000.
+    h_max = 2500.
     x0 = y0 = 0
     sigma_x = sigma_y = 15e3
 
-    tau_c_values = [1000]
+    tau_c_values = [500]
     tau_f_values = [2000]
-    Cw_values = [0.001, 0.002]
+    Cw_values = [0.001]
     Nm_values = [0.]
     Hw_values = [1000]
     u_values = [-5]
 
+    Pdata = []
     combinations = list(itertools.product(tau_c_values, tau_f_values, Cw_values, Nm_values, Hw_values, u_values))
     for combination in combinations:
             
@@ -131,16 +132,24 @@ if __name__ == "__main__":
         V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
 
         OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
-
+        Pdata.append(OP.P[nx/2+1,:])
         name_str =  '_'.join(['_'.join([k, str(v)]) for k, v in physical_constants.items()])
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        c = ax.imshow(OP.P)
-        ax.text(.05,0.8, name_str, transform=ax.transAxes)
-        cbar = plt.colorbar(c)
-        cbar.set_label('Precip ({})'.format(OP.P_units), rotation=270, labelpad=20)
-        outname = name_str + '.pdf'
-        fig.savefig(outname)
+                     
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111)
+        # c = ax.imshow(OP.P)
+        # ax.text(.05,0.8, name_str, transform=ax.transAxes)
+        # cbar = plt.colorbar(c)
+        # cbar.set_label('Precip ({})'.format(OP.P_units), rotation=270, labelpad=20)
+        # outname = name_str + '.pdf'
+        # fig.savefig(outname)
+                     
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for k in range(len(Pdata)):
+        ax.plot(x, Pdata[k])
+    
+                     
     plt.show()
 
 

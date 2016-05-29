@@ -19,6 +19,7 @@ import pickle
 import pylab as plt
 from linear_orog_precip import OrographicPrecipitation
 from cf_units import Unit
+set_log_level(30)
 
 parser = ArgumentParser()
 parser.add_argument('-i', dest='init_file',
@@ -39,24 +40,29 @@ precip_model = options.precip_model
 ta = float(options.ta)
 te = float(options.te)
 
-precip_scale_factor = 25  # Tuning factor for magnitude
+precip_scale_factor = 7.5  # Tuning factor for magnitude
 
 physical_constants = dict()
-physical_constants['tau_c'] = 1000  # conversion time [s]
+physical_constants['tau_c'] = 500  # conversion time [s]
 physical_constants['tau_f'] = 2000  # fallout time [s]
 physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
 physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
-physical_constants['Cw'] = 0.002   # uplift sensitivity factor [k m-3]
+physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
 physical_constants['Hw'] = 1000    # vapor scale height
 physical_constants['u'] = -5       # x-component of wind vector [m s-1]
 physical_constants['v'] = 0        # y-component of wind vector [m s-1]
+physical_constants['amin'] = -6.
+physical_constants['amax'] = 10.
+physical_constants['Smin'] = -400
+physical_constants['Smax'] = 2500
+physical_constants['Sela'] = -300
+physical_constants['dt'] = 0.1
 
 
 def function_from_array(x, y, Q, mesh):
     '''
     Returns a function in FunctionSpace Q and mesh interpolated from array y
     '''
-    
     dim = Q.dim()
     N = mesh.geometry().dim()
     mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
@@ -83,11 +89,18 @@ def array_from_function(f, Q, mesh):
     
     return mesh_x, mesh_y
 
-def get_adot_from_orog_precip():
+
+def get_adot_from_orog_precip(physical_constants):
     '''
     Calculates SMB for Linear Orographic Precipitation Model
     '''
-    
+
+    amin = physical_constants['amin']
+    amax = physical_constants['amax']
+    Smin = physical_constants['Smin']
+    Smax = physical_constants['Smax']
+    Sela = physical_constants['Sela']
+
     x_a, y_a = array_from_function(project(B, Q), Q, mesh)
    
     XX, YY = np.meshgrid(x_a, range(3))
@@ -101,9 +114,8 @@ def get_adot_from_orog_precip():
     P = P[1, :] * precip_scale_factor
 
     smb_S =  function_from_array(x_a, P, Q, mesh)
-    
-    return conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
-
+    # return conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded), P
+    return smb_S, P
 
 ##########################################################
 ###############   Dolfin options       ###################
@@ -123,18 +135,16 @@ ffc_options = {"optimize": True, \
 ###############        CONSTANTS       ###################
 ##########################################################
 
-L = 50000.            # Length scale [m]
+L = 75000.            # Length scale [m]
 
 spy = 31556925.9747   # seconds per year [s year-1]
 thklim = 5.0          # Minimum thickness [m]
 g = 9.81              # gravity [m s-1]
 
-zmin = -200.0         # SMB parameters
+zmin = -500.0         # SMB parameters
 amin = -8.0           # [m year-1]
 amax =  8.0           # [m year-1]
 c = 2.0
-
-shore = 0
 
 rho = 900.            # ice density [kg m-3]
 rho_w = 1000.0        # water density [kg m-3]
@@ -144,15 +154,20 @@ m = 1.0
 b = 1e-16**(-1./n)    # ice hardness
 eps_reg = 1e-5
 
+if precip_model in ('orog'):
+    dt_float = 0.1
+else:
+    dt_float = 1
+
 #########################################################
 #################      GEOMETRY     #####################
 #########################################################
 
 my_dx = 1000.  # [m]
 x = np.arange(-L, L + my_dx, my_dx)  # [m]
-h_max = 2000.  # [m]
+h_max = 2500.  # [m]
 x0 = 0
-sigma_x = 15e3
+sigma_x = 12.5e3
 
 
 # Bed elevation Expression
@@ -176,7 +191,7 @@ class Width(Expression):
 ##########################################################  
 
 # Define a rectangular mesh
-nx = 300                                  # Number of cells
+nx = 500                                  # Number of cells
 mesh = IntervalMesh(nx, -L, L)            # Equal cell size
 
 X = SpatialCoordinate(mesh)               # Spatial coordinate
@@ -242,14 +257,17 @@ gl = Constant(0)                       # Scalar grounding line
 
 dt = Constant(0.1)                     # Constant time step (gets changed below)
 
-Smax = 1250.  # above Smax, adot=amax [m]
+Smax = 2500.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
-Sela = 500.
-    
+Sela = 1000.
+bmelt = -100.
+# bdot = conditional(gt(Hmid,2*thklim), conditional(lt(Hmid, np.abs(bmelt) * dt), bmelt, Hmid-thklim) * dt * (1 - grounded), 0)
+bdot = conditional(gt(Hmid, np.abs(bmelt) * dt), bmelt * dt, -Hmid) * (1 - grounded)
+
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
 elif precip_model in 'orog':
-    adot = get_adot_from_orog_precip()
+    adot, P = get_adot_from_orog_precip(physical_constants)
 else:
     print('precip model {} not supported'.format(precip_model))
     
@@ -373,7 +391,7 @@ width = interpolate(Width(),Q)
 area = Hmid*width
 
 # Add the SUPG-stabilized continuity equation to residual
-R += ((H-H0)/dt*xsi  - xsi.dx(0)*U[0]*Hmid + D*xsi.dx(0)*Hmid.dx(0) - (adot - un*H0/width*width.dx(0))*xsi)*dx  + U[0]*area*xsi*ds(1)
+R += ((H-H0)/dt*xsi  - xsi.dx(0)*U[0]*Hmid + D*xsi.dx(0)*Hmid.dx(0) - (adot + bdot - un*H0/width*width.dx(0))*xsi)*dx  + U[0]*area*xsi*ds(1)
 
 # Jacobian of coupled momentum-mass system
 J = derivative(R, U, dU)
@@ -456,13 +474,16 @@ time = []
 
 tdata = []
 Hdata = []
-hdata = []
+Sudata = []
+Sldata = []
 Bdata = []
 usdata = []
 ubdata = []
 gldata = []
 grdata = []
 adotdata = []
+bdotdata = []
+Pdata = []
 
 ######################################################################
 #######################   SOLUTION   #################################
@@ -471,7 +492,6 @@ adotdata = []
 # Time interval
 t = ta
 t_end = te
-dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
 assigner.assign(U, [ze,ze,H0])
@@ -499,66 +519,88 @@ while t < t_end:
     BB = B.compute_vertex_values()
     HH = H0.compute_vertex_values()
 
+    # Upper glacier surface
+    S_u = (B + H) * grounded + H0 * (1 - rho / rho_w) * (1 - grounded)
+    # Lower glacier surface
+    S_l = B * grounded + H0 * (-rho / rho_w) * (1 - grounded)
+    
     us = project(u(0))
     ub = project(u(1))
-    adot_p = project(adot, Q).vector().array()
 
+    P = None
     if precip_model in 'orog':
-        adot = get_adot_from_orog_precip()
+        adot, P = get_adot_from_orog_precip(physical_constants)
+    adot_p = project(adot, Q).vector().array()
+    bdot_p = project(bdot, Q).vector().array()
         
     # Save values at each time step
     tdata.append(t)
     Hdata.append(H0.vector().array())
+    Sudata.append(project(S_u).vector().array())
+    Sldata.append(project(S_l).vector().array())
     Bdata.append(B.vector().array())
     gldata.append(gl(0))
     usdata.append(us.vector().array())
     ubdata.append(ub.vector().array())
     grdata.append(grounded.vector().array())
     adotdata.append(adot_p)
+    bdotdata.append(bdot_p)
+    Pdata.append(P)
     
-    print t, H0.vector().max()        
+    print('Year {:2.2f}, Hmax {:2.0f}'.format(t, H0.vector().max()))
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,hdata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file + '.p', 'w'))
+pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file + '.p', 'w'))
 pickle.dump((x, H0.vector().array()), open('init_' + out_file + '.p', 'w'))
-
+    
 def animate(i):
-    line_h.set_ydata(Bdata[i]+Hdata[i])  # update the data
+    line_su.set_ydata(Sudata[i])  
+    line_sl.set_ydata(Sldata[i])
     line_ub.set_ydata(ubdata[i])
     line_us.set_ydata(usdata[i])
-    line_smb.set_ydata(adotdata[i])  # update the data
+    line_adot.set_ydata(adotdata[i])
+    line_bdot.set_ydata(bdotdata[i] / dt_float)
+    line_P.set_ydata(Pdata[i])
     txt.set_text('Year {}'.format(tdata[i]))
-    return line_h, line_ub, line_us, line_smb, txt
+    return line_su, line_sl, line_ub, line_us, line_adot, line_bdot, line_P, txt
 
 # Init only required for blitting to give a clean slate.
 def init():
-    line_h.set_ydata(np.ma.array(x_km, mask=True))
+    line_su.set_ydata(np.ma.array(x_km, mask=True))
+    line_sl.set_ydata(np.ma.array(x_km, mask=True))
     line_ub.set_ydata(np.ma.array(x_km, mask=True))
     line_us.set_ydata(np.ma.array(x_km, mask=True))
-    line_smb.set_ydata(np.ma.array(x_km, mask=True))
-    return line_h, line_ub, line_us, line_smb
+    line_adot.set_ydata(np.ma.array(x_km, mask=True))
+    line_bdot.set_ydata(np.ma.array(x_km, mask=True))
+    line_P.set_ydata(np.ma.array(x_km, mask=True))
+    return line_su, line_sl, line_ub, line_us, line_adot, line_bdot, line_P
 
 x_km = x / 1000.
-fig, ax = plt.subplots(nrows=3, sharex=True)
-ax[0].set_ylim(-300, 1500)
-ax[0].plot(x_km, Bdata[0], 'k')
+fig, ax = plt.subplots(nrows=4, sharex=True)
+ax[0].set_ylim(zmin, 3000)
+ax[0].plot(x_km, Bdata[0], 'r')
 ax[0].set_ylabel('altitude (m)')
 txt = ax[0].text(0.025, 0.75, 'Year         ',
                  transform=ax[0].transAxes)
-line_h, = ax[0].plot(x_km, Bdata[0]+Hdata[0], 'b')
+line_su, = ax[0].plot(x_km, Sudata[0], 'b')
+line_sl, = ax[0].plot(x_km, Sldata[0], 'g')
 line_ub, = ax[1].plot(x_km, ubdata[0], 'k')
 line_us, = ax[1].plot(x_km, usdata[0], 'b')
 ax[1].set_ylabel('us, ub (m year-1)')
-ax[1].set_ylim(-200, 200)
-line_smb, = ax[2].plot(x_km, adotdata[0])
+ax[1].set_ylim(-250, 750)
+line_adot, = ax[2].plot(x_km, adotdata[0])
+line_P, = ax[2].plot(x_km, Pdata[0])
 ax[2].set_ylim(-8, 8)
-ax[2].set_xlabel('x (km)')
-ax[2].set_ylabel('smb (m year-1)')
+ax[2].set_ylabel('adot (m year-1)')
+line_bdot, = ax[3].plot(x_km, bdotdata[0] / dt_float)
+ax[3].set_ylim(-15, 1)
+ax[3].set_ylabel('bdot (m year-1)')
+ax[3].set_xlabel('x (km)')
 ani = animation.FuncAnimation(fig, animate,
                               frames=len(Hdata),
                               init_func=init,
                               interval=2, blit=True)
 plt.show()
-ani.save(out_file + '.mp4')
+#ani.save(out_file + '.mp4')
 
