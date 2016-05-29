@@ -84,7 +84,7 @@ class OrographicPrecipitation(object):
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), spy*1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
-        # P[P<0] = 0
+        P[P<0] = 0
 
         return P
 
@@ -104,12 +104,12 @@ if __name__ == "__main__":
     x0 = y0 = 0
     sigma_x = sigma_y = 15e3
 
-    tau_c_values = [500]
-    tau_f_values = [2000]
-    Cw_values = [0.001]
-    Nm_values = [0.]
+    tau_c_values = [200]
+    tau_f_values = [200]
+    Cw_values = [0.002]
+    Nm_values = [0.,]
     Hw_values = [1000]
-    u_values = [-5]
+    u_values = [-3]
 
     Pdata = []
     combinations = list(itertools.product(tau_c_values, tau_f_values, Cw_values, Nm_values, Hw_values, u_values))
@@ -120,11 +120,11 @@ if __name__ == "__main__":
         physical_constants['tau_c'] = tau_c  # conversion time [s]
         physical_constants['tau_f'] = tau_f  # fallout time [s]
         physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
-        physical_constants['Nm'] = Nm       # 0.005 # moist stability frequency [s-1]
-        physical_constants['Cw'] = Cw   # uplift sensitivity factor [k m-3]
-        physical_constants['Hw'] = Hw      # vapor scale height
-        physical_constants['u'] = u       # x-component of wind vector [m s-1]
-        physical_constants['v'] = 0        # y-component of wind vector [m s-1]
+        physical_constants['Nm'] = Nm        # moist stability frequency [s-1]
+        physical_constants['Cw'] = Cw    # uplift sensitivity factor [k m-3]
+        physical_constants['Hw'] = Hw    # vapor scale height
+        physical_constants['u'] = u      # x-component of wind vector [m s-1]
+        physical_constants['v'] = 0      # y-component of wind vector [m s-1]
 
         X, Y = np.meshgrid(x, y)
         Orography = h_max * np.exp(-(((X-x0)**2/(2*sigma_x**2))+((Y-y0)**2/(2*sigma_y**2))))

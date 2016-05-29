@@ -7,7 +7,6 @@
 # glacier flow model: Doug Brinkerhoff, University of Alaska Fairbanks
 # orographic precipitation model: Leif Anderson, University of Iceland
 # ######################################################################
-
 from dolfin import *
 from argparse import ArgumentParser
 import numpy as np
@@ -40,23 +39,24 @@ precip_model = options.precip_model
 ta = float(options.ta)
 te = float(options.te)
 
-precip_scale_factor = 7.5  # Tuning factor for magnitude
+precip_scale_factor = 1  # Tuning factor for magnitude
 
 physical_constants = dict()
 physical_constants['tau_c'] = 500  # conversion time [s]
-physical_constants['tau_f'] = 2000  # fallout time [s]
+physical_constants['tau_f'] = 500  # fallout time [s]
 physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
 physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
-physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
+physical_constants['Cw'] = 0.00175   # uplift sensitivity factor [k m-3]
 physical_constants['Hw'] = 1000    # vapor scale height
-physical_constants['u'] = -5       # x-component of wind vector [m s-1]
+physical_constants['u'] = -3       # x-component of wind vector [m s-1]
 physical_constants['v'] = 0        # y-component of wind vector [m s-1]
 physical_constants['amin'] = -6.
 physical_constants['amax'] = 10.
 physical_constants['Smin'] = -400
 physical_constants['Smax'] = 2500
 physical_constants['Sela'] = -300
-physical_constants['dt'] = 0.1
+physical_constants['Pstar'] = 0.1  # background precip
+physical_constants['dt'] = 0.2
 
 
 def function_from_array(x, y, Q, mesh):
@@ -100,6 +100,7 @@ def get_adot_from_orog_precip(physical_constants):
     Smin = physical_constants['Smin']
     Smax = physical_constants['Smax']
     Sela = physical_constants['Sela']
+    Pstar = physical_constants['Pstar']
 
     x_a, y_a = array_from_function(project(B, Q), Q, mesh)
    
@@ -111,7 +112,7 @@ def get_adot_from_orog_precip(physical_constants):
     OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
 
     P = OP.P
-    P = P[1, :] * precip_scale_factor
+    P = P[1, :] * precip_scale_factor + Pstar
 
     smb_S =  function_from_array(x_a, P, Q, mesh)
     # return conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded), P
@@ -154,10 +155,10 @@ m = 1.0
 b = 1e-16**(-1./n)    # ice hardness
 eps_reg = 1e-5
 
-if precip_model in ('orog'):
-    dt_float = 0.1
-else:
-    dt_float = 1
+dt_float = 1.
+step = 10
+if precip_model in 'orog':
+    dt_float /= step 
 
 #########################################################
 #################      GEOMETRY     #####################
@@ -242,7 +243,7 @@ H0.vector()[:] = rho_w/rho * thklim + 1e-3 # Initial thickness
 theta = Constant(0.5)                  # Crank-Nicholson
 Hmid = theta*H + (1-theta)*H0
 
-# Ice upper sufrace
+# Ice upper surface
 S = B + Hmid
 
 # Test and trial functions
@@ -255,12 +256,12 @@ grounded.vector()[:] = 1
 ghat = Function(Q)                     # Temp grounded 
 gl = Constant(0)                       # Scalar grounding line
 
-dt = Constant(0.1)                     # Constant time step (gets changed below)
+dt = Constant(0.2)                     # Constant time step (gets changed below)
 
 Smax = 2500.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
 Sela = 1000.
-bmelt = -100.
+bmelt = -150.
 # bdot = conditional(gt(Hmid,2*thklim), conditional(lt(Hmid, np.abs(bmelt) * dt), bmelt, Hmid-thklim) * dt * (1 - grounded), 0)
 bdot = conditional(gt(Hmid, np.abs(bmelt) * dt), bmelt * dt, -Hmid) * (1 - grounded)
 
@@ -560,10 +561,9 @@ def animate(i):
     line_ub.set_ydata(ubdata[i])
     line_us.set_ydata(usdata[i])
     line_adot.set_ydata(adotdata[i])
-    line_bdot.set_ydata(bdotdata[i] / dt_float)
     line_P.set_ydata(Pdata[i])
     txt.set_text('Year {}'.format(tdata[i]))
-    return line_su, line_sl, line_ub, line_us, line_adot, line_bdot, line_P, txt
+    return line_su, line_sl, line_ub, line_us, line_adot, line_P, txt
 
 # Init only required for blitting to give a clean slate.
 def init():
@@ -572,12 +572,11 @@ def init():
     line_ub.set_ydata(np.ma.array(x_km, mask=True))
     line_us.set_ydata(np.ma.array(x_km, mask=True))
     line_adot.set_ydata(np.ma.array(x_km, mask=True))
-    line_bdot.set_ydata(np.ma.array(x_km, mask=True))
     line_P.set_ydata(np.ma.array(x_km, mask=True))
-    return line_su, line_sl, line_ub, line_us, line_adot, line_bdot, line_P
+    return line_su, line_sl, line_ub, line_us, line_adot, line_P
 
 x_km = x / 1000.
-fig, ax = plt.subplots(nrows=4, sharex=True)
+fig, ax = plt.subplots(nrows=3, sharex=True)
 ax[0].set_ylim(zmin, 3000)
 ax[0].plot(x_km, Bdata[0], 'r')
 ax[0].set_ylabel('altitude (m)')
@@ -591,14 +590,11 @@ ax[1].set_ylabel('us, ub (m year-1)')
 ax[1].set_ylim(-250, 750)
 line_adot, = ax[2].plot(x_km, adotdata[0])
 line_P, = ax[2].plot(x_km, Pdata[0])
-ax[2].set_ylim(-8, 8)
+ax[2].set_ylim(-8, 12)
 ax[2].set_ylabel('adot (m year-1)')
-line_bdot, = ax[3].plot(x_km, bdotdata[0] / dt_float)
-ax[3].set_ylim(-15, 1)
-ax[3].set_ylabel('bdot (m year-1)')
-ax[3].set_xlabel('x (km)')
+ax[2].set_xlabel('x (km)')
 ani = animation.FuncAnimation(fig, animate,
-                              frames=len(Hdata),
+                              frames=range(0, len(tdata), step),
                               init_func=init,
                               interval=2, blit=True)
 plt.show()
