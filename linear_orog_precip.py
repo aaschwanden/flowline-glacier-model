@@ -100,25 +100,28 @@ if __name__ == "__main__":
     L = 50.e3
     x, y = np.arange(-L, L, dx), np.arange(-L, L, dy)
     nx, nx = len(x), len(y)
-    h_max = L / 50
+    h_max = 2000.
     x0 = y0 = 0
-    sigma_x = sigma_y = L / 4
+    sigma_x = sigma_y = 15e3
 
-    tau_c_values = [500, 1000, 1500]
-    tau_f_values = [1500, 2000, 2500]
-    u_values = [-1, -5 -10]
+    tau_c_values = [1000]
+    tau_f_values = [2000]
+    Cw_values = [0.001, 0.002]
+    Nm_values = [0.]
+    Hw_values = [1000]
+    u_values = [-5]
 
-    combinations = list(itertools.product(tau_c_values, tau_f_values, u_values))
+    combinations = list(itertools.product(tau_c_values, tau_f_values, Cw_values, Nm_values, Hw_values, u_values))
     for combination in combinations:
             
-        tau_c, tau_f, u = combination
+        tau_c, tau_f, Cw, Nm, Hw, u = combination
         physical_constants = dict()
         physical_constants['tau_c'] = tau_c  # conversion time [s]
         physical_constants['tau_f'] = tau_f  # fallout time [s]
         physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
-        physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
-        physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
-        physical_constants['Hw'] = 1000    # vapor scale height
+        physical_constants['Nm'] = Nm       # 0.005 # moist stability frequency [s-1]
+        physical_constants['Cw'] = Cw   # uplift sensitivity factor [k m-3]
+        physical_constants['Hw'] = Hw      # vapor scale height
         physical_constants['u'] = u       # x-component of wind vector [m s-1]
         physical_constants['v'] = 0        # y-component of wind vector [m s-1]
 
@@ -129,11 +132,13 @@ if __name__ == "__main__":
 
         OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
 
-        fig = plt.figure()
-        plt.imshow(OP.P)
-        cbar = plt.colorbar()
-        cbar.set_label('Precip ({})'.format(OP.P_units), rotation=270, labelpad=20)
         name_str =  '_'.join(['_'.join([k, str(v)]) for k, v in physical_constants.items()])
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        c = ax.imshow(OP.P)
+        ax.text(.05,0.8, name_str, transform=ax.transAxes)
+        cbar = plt.colorbar(c)
+        cbar.set_label('Precip ({})'.format(OP.P_units), rotation=270, labelpad=20)
         outname = name_str + '.pdf'
         fig.savefig(outname)
     plt.show()

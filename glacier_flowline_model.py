@@ -46,7 +46,7 @@ physical_constants['tau_c'] = 1000  # conversion time [s]
 physical_constants['tau_f'] = 2000  # fallout time [s]
 physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
 physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
-physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
+physical_constants['Cw'] = 0.002   # uplift sensitivity factor [k m-3]
 physical_constants['Hw'] = 1000    # vapor scale height
 physical_constants['u'] = -5       # x-component of wind vector [m s-1]
 physical_constants['v'] = 0        # y-component of wind vector [m s-1]
@@ -129,7 +129,7 @@ spy = 31556925.9747   # seconds per year [s year-1]
 thklim = 5.0          # Minimum thickness [m]
 g = 9.81              # gravity [m s-1]
 
-zmin = -300.0         # SMB parameters
+zmin = -200.0         # SMB parameters
 amin = -8.0           # [m year-1]
 amax =  8.0           # [m year-1]
 c = 2.0
@@ -150,9 +150,9 @@ eps_reg = 1e-5
 
 my_dx = 1000.  # [m]
 x = np.arange(-L, L + my_dx, my_dx)  # [m]
-h_max = 1000.  # [m]
+h_max = 2000.  # [m]
 x0 = 0
-sigma_x = L / 4
+sigma_x = 15e3
 
 
 # Bed elevation Expression
