@@ -28,10 +28,18 @@ parser.add_argument('-o', dest='out_file',
 parser.add_argument('--smb', dest='precip_model',
                     choices=['linear', 'orog'],
                     help='Precip model', default='linear')
+parser.add_argument('-a', '--t_start', dest='ta',
+                    help='Start year', default=0.)
+parser.add_argument('-e', '--t_end', dest='te',
+                    help='End year', default=1000.)
 options = parser.parse_args()
 init_file = options.init_file
 out_file = options.out_file
 precip_model = options.precip_model
+ta = float(options.ta)
+te = float(options.te)
+
+precip_scale_factor = 25  # Tuning factor for magnitude
 
 physical_constants = dict()
 physical_constants['tau_c'] = 1000  # conversion time [s]
@@ -54,7 +62,6 @@ def function_from_array(x, y, Q, mesh):
     mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
     mesh_x = mesh_coor[:, 0]
     fx_dofs = Q.dofmap().dofs()
-
     f_interp = interp1d(x, y)
     mesh_values = f_interp(mesh_x)
     my_f  = Function(Q)
@@ -75,6 +82,28 @@ def array_from_function(f, Q, mesh):
     mesh_y = f.vector().array()
     
     return mesh_x, mesh_y
+
+def get_adot_from_orog_precip():
+    '''
+    Calculates SMB for Linear Orographic Precipitation Model
+    '''
+    
+    x_a, y_a = array_from_function(project(B, Q), Q, mesh)
+   
+    XX, YY = np.meshgrid(x_a, range(3))
+    Orography = np.tile(y_a, (3, 1))
+
+    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
+    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])    
+    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
+
+    P = OP.P
+    P = P[1, :] * precip_scale_factor
+
+    smb_S =  function_from_array(x_a, P, Q, mesh)
+    
+    return conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
+
 
 ##########################################################
 ###############   Dolfin options       ###################
@@ -220,25 +249,7 @@ Sela = 500.
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
 elif precip_model in 'orog':
-    x_a, y_a = array_from_function(project(B, Q), Q, mesh)
-   
-    XX, YY = np.meshgrid(x_a, range(3))
-    Orography = np.tile(y_a, (3, 1))
-
-    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
-    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])    
-    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
-
-    inunit = OP.P_units
-    outunit = 'm year-1'
-    in_unit  = Unit(inunit)
-    out_unit  = Unit(outunit)
-    P = in_unit.convert(OP.P, out_unit)
-    P = P[1, :] * 10
-
-    smb_S =  function_from_array(x_a, P, Q, mesh)
-    adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
-
+    adot = get_adot_from_orog_precip()
 else:
     print('precip model {} not supported'.format(precip_model))
     
@@ -432,35 +443,13 @@ u_bound = Function(V)
 assigner.assign(l_bound,[l_v_bound]*2+[l_thick_bound])
 assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
 
-################## PLOTTING ##########################
-# plt.ion()
-# fig, ax = plt.subplots(nrows=3, sharex=True)
-
 x = mesh.coordinates().ravel()
 SS = project(S)
 BB = B.compute_vertex_values()
-# ph0, = ax[0].plot(x,BB,'b-')
-
 HH = H0.compute_vertex_values()
-
-# ph1, = ax[0].plot(x, BB+HH,'g-')
-# ph5, = ax[0].plot(x, BB+HH,'r-')
-# ax[0].set_xlim(-L,L/2.)
-# ax[0].set_ylim(-200,1500)
-
 us = project(u(0))
 ub = project(u(1))
-# ph3, = ax[1].plot(x, us.compute_vertex_values())
-# ph4, = ax[1].plot(x, ub.compute_vertex_values())
-# ax[1].set_xlim(-L, L)
-# ax[1].set_ylim(-200, 200)
-
 adot_p = project(adot, Q).vector().array()
-# ph6, = ax[2].plot(x, adot_p)
-# ax[2].set_xlim(-L, L)
-# ax[2].set_ylim(-8, 8)
-
-# plt.draw()
 
 mass = []
 time = []
@@ -480,8 +469,8 @@ adotdata = []
 ######################################################################
 
 # Time interval
-t = 0.0
-t_end = 5000.
+t = ta
+t_end = te
 dt_float = 1.             # Set time step here
 dt.assign(dt_float)
 
@@ -512,37 +501,10 @@ while t < t_end:
 
     us = project(u(0))
     ub = project(u(1))
-
-    # ph0.set_ydata(BB)
-    # ph1.set_ydata((BB + HH)*grounded.compute_vertex_values() + (1-rho/rho_w)*HH*(1-grounded.compute_vertex_values()))
-    # ph5.set_ydata((BB)*grounded.compute_vertex_values() + (-rho/rho_w*HH)*(1-grounded.compute_vertex_values()))
-
-    # ph3.set_ydata(us.compute_vertex_values())
-    # ph4.set_ydata(ub.compute_vertex_values())
     adot_p = project(adot, Q).vector().array()
 
-    # ph6.set_ydata(adot_p)
-    # plt.draw()
-
     if precip_model in 'orog':
-        x_a, y_a = array_from_function(project(B, Q), Q, mesh)
-        XX, YY = np.meshgrid(x_a, range(3))
-        Orography = np.tile(y_a, (3, 1))
-
-        UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
-        VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])    
-        OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
-
-        inunit = OP.P_units
-        outunit = 'm year-1'
-        in_unit  = Unit(inunit)
-        out_unit  = Unit(outunit)
-        P = in_unit.convert(OP.P, out_unit) * 10
-        P = P[1, :]
-        #P[y_a < S_ela] = amin + da_abl * (y_a - S_ela)
-
-        smb_S =  function_from_array(x_a, P, Q, mesh)
-        adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
+        adot = get_adot_from_orog_precip()
         
     # Save values at each time step
     tdata.append(t)
@@ -563,26 +525,40 @@ pickle.dump((x, H0.vector().array()), open('init_' + out_file + '.p', 'w'))
 
 def animate(i):
     line_h.set_ydata(Bdata[i]+Hdata[i])  # update the data
+    line_ub.set_ydata(ubdata[i])
+    line_us.set_ydata(usdata[i])
     line_smb.set_ydata(adotdata[i])  # update the data
-    return line_h, line_smb,
+    txt.set_text('Year {}'.format(tdata[i]))
+    return line_h, line_ub, line_us, line_smb, txt
 
 # Init only required for blitting to give a clean slate.
 def init():
-    line_h.set_ydata(np.ma.array(x, mask=True))
-    line_smb.set_ydata(np.ma.array(x, mask=True))
-    return line_h, line_smb
+    line_h.set_ydata(np.ma.array(x_km, mask=True))
+    line_ub.set_ydata(np.ma.array(x_km, mask=True))
+    line_us.set_ydata(np.ma.array(x_km, mask=True))
+    line_smb.set_ydata(np.ma.array(x_km, mask=True))
+    return line_h, line_ub, line_us, line_smb
 
-fig, ax = plt.subplots(nrows=2, sharex=True)
+x_km = x / 1000.
+fig, ax = plt.subplots(nrows=3, sharex=True)
 ax[0].set_ylim(-300, 1500)
-ax[0].plot(x, Bdata[0], 'k')
-line_h,  = ax[0].plot(x, Bdata[0]+Hdata[0], 'b')
-line_smb, = ax[1].plot(x, adotdata[0])
-ax[1].set_ylim(-8, 8)
-
+ax[0].plot(x_km, Bdata[0], 'k')
+ax[0].set_ylabel('altitude (m)')
+txt = ax[0].text(0.025, 0.75, 'Year         ',
+                 transform=ax[0].transAxes)
+line_h, = ax[0].plot(x_km, Bdata[0]+Hdata[0], 'b')
+line_ub, = ax[1].plot(x_km, ubdata[0], 'k')
+line_us, = ax[1].plot(x_km, usdata[0], 'b')
+ax[1].set_ylabel('us, ub (m year-1)')
+ax[1].set_ylim(-200, 200)
+line_smb, = ax[2].plot(x_km, adotdata[0])
+ax[2].set_ylim(-8, 8)
+ax[2].set_xlabel('x (km)')
+ax[2].set_ylabel('smb (m year-1)')
 ani = animation.FuncAnimation(fig, animate,
                               frames=len(Hdata),
                               init_func=init,
                               interval=2, blit=True)
-ani.save(out_file + '.mp4')
 plt.show()
+ani.save(out_file + '.mp4')
 

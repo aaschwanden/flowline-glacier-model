@@ -85,7 +85,6 @@ class OrographicPrecipitation(object):
         spy = 31556925.9747
         P = np.multiply(np.real(y3), spy*1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
         P[P<0] = 0
-        P[Orography<1] = 0
 
         return P
 
@@ -94,8 +93,8 @@ class OrographicPrecipitation(object):
 if __name__ == "__main__":
     print('Linear Orographic Precipitation Model by Smith & Barstad (2004)')
 
-    from cf_units import Unit
     import pylab as plt
+    import itertools
     
     dx = dy = 1000.
     L = 50.e3
@@ -105,27 +104,38 @@ if __name__ == "__main__":
     x0 = y0 = 0
     sigma_x = sigma_y = L / 4
 
-    physical_constants = dict()
-    physical_constants['tau_c'] = 1000  # conversion time [s]
-    physical_constants['tau_f'] = 2000  # fallout time [s]
-    physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
-    physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
-    physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
-    physical_constants['Hw'] = 1000    # vapor scale height
-    physical_constants['u'] = -5       # x-component of wind vector [m s-1]
-    physical_constants['v'] = 0        # y-component of wind vector [m s-1]
+    tau_c_values = [500, 1000, 1500]
+    tau_f_values = [1500, 2000, 2500]
+    u_values = [-1, -5 -10]
 
-    X, Y = np.meshgrid(x, y)
-    Orography = h_max * np.exp(-(((X-x0)**2/(2*sigma_x**2))+((Y-y0)**2/(2*sigma_y**2))))
-    U = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
-    V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
+    combinations = list(itertools.product(tau_c_values, tau_f_values, u_values))
+    for combination in combinations:
+            
+        tau_c, tau_f, u = combination
+        physical_constants = dict()
+        physical_constants['tau_c'] = tau_c  # conversion time [s]
+        physical_constants['tau_f'] = tau_f  # fallout time [s]
+        physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
+        physical_constants['Nm'] = 0       # 0.005 # moist stability frequency [s-1]
+        physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
+        physical_constants['Hw'] = 1000    # vapor scale height
+        physical_constants['u'] = u       # x-component of wind vector [m s-1]
+        physical_constants['v'] = 0        # y-component of wind vector [m s-1]
 
-    OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
+        X, Y = np.meshgrid(x, y)
+        Orography = h_max * np.exp(-(((X-x0)**2/(2*sigma_x**2))+((Y-y0)**2/(2*sigma_y**2))))
+        U = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
+        V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
 
-    plt.figure()
-    plt.imshow(OP.P)
-    cbar = plt.colorbar()
-    cbar.set_label('Precip ({})'.format(OP.units), rotation=270, labelpad=20)
+        OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
+
+        fig = plt.figure()
+        plt.imshow(OP.P)
+        cbar = plt.colorbar()
+        cbar.set_label('Precip ({})'.format(OP.P_units), rotation=270, labelpad=20)
+        name_str =  '_'.join(['_'.join([k, str(v)]) for k, v in physical_constants.items()])
+        outname = name_str + '.pdf'
+        fig.savefig(outname)
     plt.show()
 
 
