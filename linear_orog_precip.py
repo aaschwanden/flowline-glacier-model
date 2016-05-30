@@ -84,7 +84,6 @@ class OrographicPrecipitation(object):
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), spy*1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
-        P[P<0] = 0
 
         return P
 
@@ -94,22 +93,23 @@ if __name__ == "__main__":
     print('Linear Orographic Precipitation Model by Smith & Barstad (2004)')
 
     import pylab as plt
+    from matplotlib import cm
     import itertools
+    from cf_units import Unit
     
-    dx = dy = 1000.
-    L = 50.e3
-    x, y = np.arange(-L, L, dx), np.arange(-L, L, dy)
+    dx = dy = 750.
+    x, y = np.arange(-100e3, 200e3, dx), np.arange(-150e3, 150e3, dy)
     nx, nx = len(x), len(y)
-    h_max = 2500.
+    h_max = 500.
     x0 = y0 = 0
     sigma_x = sigma_y = 15e3
 
-    tau_c_values = [200]
-    tau_f_values = [200]
-    Cw_values = [0.002]
+    tau_c_values = [1000]
+    tau_f_values = [1000]
+    Cw_values = [0.005]
     Nm_values = [0.,]
-    Hw_values = [1000]
-    u_values = [-3]
+    Hw_values = [2500]
+    u_values = [-15]
 
     Pdata = []
     combinations = list(itertools.product(tau_c_values, tau_f_values, Cw_values, Nm_values, Hw_values, u_values))
@@ -132,22 +132,32 @@ if __name__ == "__main__":
         V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
 
         OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
-        Pdata.append(OP.P[nx/2+1,:])
+        inunit = OP.P_units
+        ounit = 'mm hr-1'
+        iu = Unit(inunit)
+        ou = Unit(ounit)
+        P = iu.convert(OP.P, ou)
+        
+        Pdata.append(P[nx/2+1,:])
         name_str =  '_'.join(['_'.join([k, str(v)]) for k, v in physical_constants.items()])
                      
-        # fig = plt.figure()
-        # ax = fig.add_subplot(111)
-        # c = ax.imshow(OP.P)
-        # ax.text(.05,0.8, name_str, transform=ax.transAxes)
-        # cbar = plt.colorbar(c)
-        # cbar.set_label('Precip ({})'.format(OP.P_units), rotation=270, labelpad=20)
-        # outname = name_str + '.pdf'
-        # fig.savefig(outname)
+        fig = plt.figure()
+        ax1 = fig.add_subplot(211)
+        ax2 = fig.add_subplot(212)
+        c1 = ax1.imshow(Orography)
+        c2 = ax2.imshow(OP.P, cmap=cm.RdBu)
+        c3 = ax2.contour(OP.P, [.0001], colors='k')
+        ax1.text(.05,0.8, name_str, transform=ax1.transAxes)
+        cbar1 = plt.colorbar(c1, ax=ax1)
+        cbar2 = plt.colorbar(c2, ax=ax2)
+        cbar2.set_label('Precip ({})'.format(ounit))
+        outname = name_str + '.pdf'
+        fig.savefig(outname)
                      
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    for k in range(len(Pdata)):
-        ax.plot(x, Pdata[k])
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    # for k in range(len(Pdata)):
+    #     ax.plot(x, Pdata[k])
     
                      
     plt.show()
