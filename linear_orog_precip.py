@@ -59,11 +59,12 @@ class OrographicPrecipitation(object):
         sigma = np.add(np.multiply(kx, U), np.multiply(ky, V))
 
         # The vertical wave number
-        # Eqn. 12
-        m = np.power(np.multiply(np.add(np.power(kx, 2.) , np.power(ky, 2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma, 2.)) , np.subtract(np.power(sigma, 2.), physical_constants['f']**2.))), 0.5)
-
+        # Eqn. 38
+        # m = np.power(np.multiply(np.add(np.power(kx, 2.) , np.power(ky, 2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma, 2.)) , np.subtract(np.power(sigma, 2.), physical_constants['f']**2.))), 0.5)
+        m = np.power(np.multiply(np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), np.power(sigma, 2.)), np.add(np.power(kx, 2.) , np.power(ky, 2.))), 0.5)
+        
         m[np.isnan(m)] = 0
-        m = np.maximum(m,0.0001)
+        #m = np.maximum(m,0.00001)
         m = np.minimum(m,0.01)
         
         # Numerator in Eqn. 49
@@ -83,8 +84,9 @@ class OrographicPrecipitation(object):
         y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle) , np.multiply(cmath.sqrt(-1) , np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
-        P = np.multiply(np.real(y3), spy*1./1000)   #(np.pi*10**7)/1000/12)  # times 100 for cm
-
+        P = np.multiply(np.real(y3), spy*1./1000)   # m year-1
+        # Truncation
+        P[P<0] = 0
         return P
 
 
@@ -106,10 +108,14 @@ if __name__ == "__main__":
 
     tau_c_values = [1000]
     tau_f_values = [1000]
-    Cw_values = [0.005]
-    Nm_values = [0.,]
+    Cw_values = [0.0]
+    Nm_values = [0.005]
     Hw_values = [2500]
     u_values = [-15]
+
+    Theta_m = -6.5
+    rho_Sref = 7.4e-3  # kg m-3
+    gamma = -5.8
 
     Pdata = []
     combinations = list(itertools.product(tau_c_values, tau_f_values, Cw_values, Nm_values, Hw_values, u_values))
@@ -121,7 +127,7 @@ if __name__ == "__main__":
         physical_constants['tau_f'] = tau_f  # fallout time [s]
         physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
         physical_constants['Nm'] = Nm        # moist stability frequency [s-1]
-        physical_constants['Cw'] = Cw    # uplift sensitivity factor [k m-3]
+        physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [k m-3]
         physical_constants['Hw'] = Hw    # vapor scale height
         physical_constants['u'] = u      # x-component of wind vector [m s-1]
         physical_constants['v'] = 0      # y-component of wind vector [m s-1]
@@ -145,7 +151,10 @@ if __name__ == "__main__":
         ax1 = fig.add_subplot(211)
         ax2 = fig.add_subplot(212)
         c1 = ax1.imshow(Orography)
-        c2 = ax2.imshow(OP.P, cmap=cm.RdBu)
+        c2 = ax2.imshow(P, cmap=cm.RdBu_r, vmin =-2.5, vmax=2.5)
+        ax2.contour(P, np.arange(0.025, 2.025, 0.4), vmin =-2.5, vmax=2.5, colors='k', linestyles='dotted')
+        ax1.vlines(132, 0, 400,  colors='0.75', linestyles='dashed')
+        ax2.vlines(132, 0, 400,  colors='0.75', linestyles='dashed')
         c3 = ax2.contour(OP.P, [.0001], colors='k')
         ax1.text(.05,0.8, name_str, transform=ax1.transAxes)
         cbar1 = plt.colorbar(c1, ax=ax1)
@@ -154,10 +163,10 @@ if __name__ == "__main__":
         outname = name_str + '.pdf'
         fig.savefig(outname)
                      
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111)
-    # for k in range(len(Pdata)):
-    #     ax.plot(x, Pdata[k])
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for k in range(len(Pdata)):
+        ax.plot(x, Pdata[k])
     
                      
     plt.show()
