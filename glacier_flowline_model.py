@@ -179,7 +179,7 @@ class Bed(Expression):
 # Basal traction Expression
 class Beta2(Expression):
   def eval(self, values, x):
-    values[0] = 2e3
+    values[0] = 2.5e3
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
 class Width(Expression):
@@ -594,9 +594,9 @@ ax[2].set_ylim(-8, 12)
 ax[2].set_ylabel('adot (m year-1)')
 ax[2].set_xlabel('x (km)')
 ani = animation.FuncAnimation(fig, animate,
-                              frames=range(0, len(tdata), step),
+                              frames=len(tdata),
                               init_func=init,
                               interval=2, blit=True)
 plt.show()
-#ani.save(out_file + '.mp4')
+ani.save(out_file + '.mp4', fps=24)
 
