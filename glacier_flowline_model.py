@@ -7,12 +7,12 @@
 # glacier flow model: Doug Brinkerhoff, University of Alaska Fairbanks
 # orographic precipitation model: Leif Anderson, University of Iceland
 # ######################################################################
+
 from dolfin import *
 from argparse import ArgumentParser
 import numpy as np
 import matplotlib
 import matplotlib.animation as animation
-#matplotlib.use('WXAgg')
 from scipy.interpolate import interp1d
 import pickle
 import pylab as plt
@@ -34,9 +34,9 @@ parser.add_argument('--geom', dest='geom',
 parser.add_argument('-a', '--t_start', dest='ta', type=float,
                     help='Start year', default=0.)
 parser.add_argument('-e', '--t_end', dest='te', type=float,
-                    help='End year', default=1000.)
+                    help='End year', default=250.)
 parser.add_argument('--dt', dest='dt', type=float,
-                    help='Time step', default=1.)
+                    help='Time step', default=1.0)
 parser.add_argument('--erosion', dest='erosion', action='store_true',
                     help='Turn on erosion', default=False)
 
@@ -133,7 +133,7 @@ def get_adot_from_orog_precip(ltop_constants):
     P = P[1, :] * Pscale + Pstar
 
     smb_S =  function_from_array(x_a, P, Q, mesh)
-    # return conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), smb_S) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded), P
+
     return smb_S, P
 
 ##########################################################
@@ -281,11 +281,11 @@ dg = TrialFunction(Q)                  # Scalar trial function
 ghat = Function(Q)                     # Temp grounded 
 gl = Constant(0)                       # Scalar grounding line
 
-Smax = 3000.  # above Smax, adot=amax [m]
-Smin = 0.     # below Smin, adot=amin [m]
-Sela = 1000.  # equilibrium line altidue [m]
+Smax = 2500.    # above Smax, adot=amax [m]
+Smin = 100.     # below Smin, adot=amin [m]
+Sela = 1000.    # equilibrium line altidue [m]
 
-bmelt = -150.
+bmelt = -150.   # sub-shelf melt rate [m year-1]
 
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
