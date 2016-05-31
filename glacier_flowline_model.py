@@ -505,6 +505,10 @@ x = mesh.coordinates().ravel()
 SS = project(S)
 us = project(u(0))
 ub = project(u(1))
+if init_file is not None:
+    us = function_from_array(xinit, usinit, Q, mesh)
+    ub = function_from_array(xinit, ubinit, Q, mesh)
+
 adot_p = project(adot, Q).vector().array()
 
 mass = []
