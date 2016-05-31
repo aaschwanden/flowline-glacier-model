@@ -184,7 +184,7 @@ my_dx = 1000.  # [m]
 x = np.arange(-L, L + my_dx, my_dx)  # [m]
 h_max = 2500.  # [m]
 x0 = 0
-sigma_x = 12.5e3
+sigma_x = 15e3
 sigma_x1 = 5e3
 sigma_x2 = 15e3
 
@@ -200,7 +200,7 @@ class BedAsym(Expression):
 # Basal traction Expression
 class Beta2(Expression):
   def eval(self, values, x):
-    values[0] = 2.5e3
+    values[0] = 5e3
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
 class Width(Expression):
@@ -282,7 +282,7 @@ ghat = Function(Q)                     # Temp grounded
 gl = Constant(0)                       # Scalar grounding line
 
 Smax = 2500.    # above Smax, adot=amax [m]
-Smin = 100.     # below Smin, adot=amin [m]
+Smin =  200.     # below Smin, adot=amin [m]
 Sela = 1000.    # equilibrium line altidue [m]
 
 bmelt = -150.   # sub-shelf melt rate [m year-1]
@@ -293,14 +293,10 @@ if precip_model in 'linear':
 elif precip_model in 'orog':
     adot, P = get_adot_from_orog_precip(ltop_constants)
     bdot = conditional(gt(Hmid, np.abs(bmelt) * dt), bmelt * dt, -Hmid) * (1 - grounded)
-
 else:
     print('precip model {} not supported'.format(precip_model))
-    
-if init_file is not None:
-    xinit, Hinit = pickle.load(open(init_file, 'rb'))
-    H0 = function_from_array(xinit, Hinit, Q, mesh)
 
+ 
 ########################################################
 #################   Numerics   #########################
 ########################################################
@@ -358,6 +354,22 @@ weights = np.array([0.4876/2.,0.4317,0.2768,0.0476])
 
 vi = VerticalIntegrator(points, weights)
 
+
+######################################################################
+#######################   RESTART    #################################
+######################################################################
+
+if init_file is not None:
+    xinit,tinit,Hinit,Suinit,Slinit,Binit,usinit,ubinit,grinit,glinit,adotinit,bdotinit = pickle.load(open(init_file, 'rb'))
+    H0 = function_from_array(xinit, Hinit, Q, mesh)
+    B = function_from_array(xinit, Binit, Q, mesh)
+    grounded = function_from_array(xinit, grinit, Q, mesh)
+    # Doesn't work, would be overridden in lines 506-07 anyway
+    us = function_from_array(xinit, usinit, Q, mesh)
+    ub = function_from_array(xinit, ubinit, Q, mesh)
+
+    
+
 ########################################################
 #################   Momentum Balance    ################
 ########################################################
@@ -404,6 +416,7 @@ F_ocean_x = 1./2.*rho*g*(1-(rho/rho_w))*H**2*Phi[0]*ds(1)
 
 R += F_ocean_x
 
+
 #############################################################################
 ##########################  MASS BALANCE  ###################################
 #############################################################################
@@ -421,6 +434,7 @@ R += ((H-H0)/dt*xsi  - xsi.dx(0)*U[0]*Hmid + D*xsi.dx(0)*Hmid.dx(0) - (adot + bd
 
 # Jacobian of coupled momentum-mass system
 J = derivative(R, U, dU)
+
 
 #####################################################################
 ############################  GL Dynamics  ##########################
@@ -471,7 +485,7 @@ mass_solver.parameters['snes_solver']['relative_tolerance'] = 1e-3
 mass_solver.parameters['snes_solver']['absolute_tolerance'] = 1e-3
 mass_solver.parameters['snes_solver']['error_on_nonconvergence'] = True
 mass_solver.parameters['snes_solver']['linear_solver'] = 'mumps'
-mass_solver.parameters['snes_solver']['maximum_iterations'] = 100
+mass_solver.parameters['snes_solver']['maximum_iterations'] = 500
 mass_solver.parameters['snes_solver']['report'] = False
 
 # Bounds
@@ -509,6 +523,7 @@ adotdata = []
 bdotdata = []
 Pdata = []
 
+
 ######################################################################
 #######################   SOLUTION   #################################
 ######################################################################
@@ -528,7 +543,10 @@ while t < t_end:
     solve(A_g == b_g, grounded)
     grounded.vector()[0] = 1
 
+    # Hard bed erosion
     if erosion:
+        # Only update every update_lag years because
+        # this is computationally expensive
         if (np.mod(t, update_lag) == 0):
             K = erosion_constants['K']
             l = erosion_constants['l']
@@ -579,8 +597,8 @@ while t < t_end:
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,usdata,ubdata,grdata,gldata, adotdata), open(out_file + '.p', 'w'))
-pickle.dump((x, H0.vector().array()), open('init_' + out_file + '.p', 'w'))
+pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
+pickle.dump((x,tdata[-1],Hdata[-1],Sudata[-1],Sldata[-1],Bdata[-1],usdata[-1],ubdata[-1],grdata[-1],gldata[-1],adotdata[-1],bdotdata[-1]), open('init_' + out_file + '.p', 'w'))
     
 def animate(i):
     line_su.set_ydata(Sudata[i])  
