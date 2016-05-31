@@ -37,6 +37,9 @@ parser.add_argument('-e', '--t_end', dest='te', type=float,
                     help='End year', default=1000.)
 parser.add_argument('--dt', dest='dt', type=float,
                     help='Time step', default=1.)
+parser.add_argument('--erosion', dest='erosion', action='store_true',
+                    help='Turn on erosion', default=False)
+
 options = parser.parse_args()
 init_file = options.init_file
 out_file = options.out_file
@@ -45,25 +48,32 @@ precip_model = options.precip_model
 ta = options.ta
 te = options.te
 dt_float = options.dt
+erosion = options.erosion
 
 precip_scale_factor = 2  # Tuning factor for magnitude
+update_lag = 100
 
-physical_constants = dict()
-physical_constants['tau_c'] = 500  # conversion time [s]
-physical_constants['tau_f'] = 500  # fallout time [s]
-physical_constants['Nm'] = 0.001       # 0.005 # moist stability frequency [s-1]
-physical_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
-physical_constants['Hw'] = 1000    # vapor scale height
-physical_constants['u'] = -3       # x-component of wind vector [m s-1]
-physical_constants['v'] = 0        # y-component of wind vector [m s-1]
-physical_constants['amin'] = -6.
-physical_constants['amax'] = 10.
-physical_constants['Smin'] = -400
-physical_constants['Smax'] = 2500
-physical_constants['Sela'] = -300
-physical_constants['Pstar'] = 0.1  # background precip
-physical_constants['Pscale'] = 5   # Precip scale factor
-physical_constants['dt'] = 0.2
+erosion_constants = dict()
+erosion_constants['K'] = 2.7e-7
+erosion_constants['l'] = 2.
+
+
+ltop_constants = dict()
+ltop_constants['tau_c'] = 500  # conversion time [s]
+ltop_constants['tau_f'] = 500  # fallout time [s]
+ltop_constants['Nm'] = 0.001       # 0.005 # moist stability frequency [s-1]
+ltop_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
+ltop_constants['Hw'] = 1000    # vapor scale height
+ltop_constants['u'] = -3       # x-component of wind vector [m s-1]
+ltop_constants['v'] = 0        # y-component of wind vector [m s-1]
+ltop_constants['amin'] = -6.
+ltop_constants['amax'] = 10.
+ltop_constants['Smin'] = -400
+ltop_constants['Smax'] = 2500
+ltop_constants['Sela'] = -300
+ltop_constants['Pstar'] = 0.1  # background precip
+ltop_constants['Pscale'] = 5   # Precip scale factor
+ltop_constants['dt'] = 0.2
 
 
 def function_from_array(x, y, Q, mesh):
@@ -97,27 +107,27 @@ def array_from_function(f, Q, mesh):
     return mesh_x, mesh_y
 
 
-def get_adot_from_orog_precip(physical_constants):
+def get_adot_from_orog_precip(ltop_constants):
     '''
     Calculates SMB for Linear Orographic Precipitation Model
     '''
 
-    amin = physical_constants['amin']
-    amax = physical_constants['amax']
-    Smin = physical_constants['Smin']
-    Smax = physical_constants['Smax']
-    Sela = physical_constants['Sela']
-    Pscale = physical_constants['Pscale']
-    Pstar = physical_constants['Pstar']
+    amin = ltop_constants['amin']
+    amax = ltop_constants['amax']
+    Smin = ltop_constants['Smin']
+    Smax = ltop_constants['Smax']
+    Sela = ltop_constants['Sela']
+    Pscale = ltop_constants['Pscale']
+    Pstar = ltop_constants['Pstar']
 
     x_a, y_a = array_from_function(project(B, Q), Q, mesh)
    
     XX, YY = np.meshgrid(x_a, range(3))
     Orography = np.tile(y_a, (3, 1))
 
-    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
-    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])    
-    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, physical_constants)
+    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['u'])
+    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['v'])    
+    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, ltop_constants)
 
     P = OP.P
     P = P[1, :] * Pscale + Pstar
@@ -151,8 +161,8 @@ thklim = 5.0          # Minimum thickness [m]
 g = 9.81              # gravity [m s-1]
 
 zmin = -500.0         # SMB parameters
-amin = -8.0           # [m year-1]
-amax =  8.0           # [m year-1]
+amin =  -8.0           # [m year-1]
+amax =  10.0           # [m year-1]
 c = 2.0
 
 rho = 900.            # ice density [kg m-3]
@@ -177,7 +187,6 @@ x0 = 0
 sigma_x = 12.5e3
 sigma_x1 = 5e3
 sigma_x2 = 15e3
-erosion = Constant(1)
 
 # Bed elevation Expression
 class BedSym(Expression):
@@ -272,9 +281,9 @@ dg = TrialFunction(Q)                  # Scalar trial function
 ghat = Function(Q)                     # Temp grounded 
 gl = Constant(0)                       # Scalar grounding line
 
-Smax = 2500.  # above Smax, adot=amax [m]
+Smax = 3000.  # above Smax, adot=amax [m]
 Smin = 0.     # below Smin, adot=amin [m]
-Sela = 1000.
+Sela = 1000.  # equilibrium line altidue [m]
 
 bmelt = -150.
 
@@ -282,7 +291,7 @@ if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
     bdot = Constant(0.)
 elif precip_model in 'orog':
-    adot, P = get_adot_from_orog_precip(physical_constants)
+    adot, P = get_adot_from_orog_precip(ltop_constants)
     bdot = conditional(gt(Hmid, np.abs(bmelt) * dt), bmelt * dt, -Hmid) * (1 - grounded)
 
 else:
@@ -518,9 +527,13 @@ while t < t_end:
     # Update grounding line position
     solve(A_g == b_g, grounded)
     grounded.vector()[0] = 1
-    
-    # erosion = Constant(1e-3) * ub * dt * grounded
-    # B = B - erosion
+
+    if erosion:
+        if (np.mod(t, update_lag) == 0):
+            K = erosion_constants['K']
+            l = erosion_constants['l']
+            mdot =  K * abs(ub)**l  * grounded
+            B -= mdot * (update_lag/dt)
 
     # Try solving with last solution as initial guess for next solution
     try:
@@ -543,7 +556,7 @@ while t < t_end:
 
     P = None
     if precip_model in 'orog':
-        adot, P = get_adot_from_orog_precip(physical_constants)
+        adot, P = get_adot_from_orog_precip(ltop_constants)
     adot_p = project(adot, Q).vector().array()
     bdot_p = project(bdot, Q).vector().array()
         
@@ -609,5 +622,5 @@ ani = animation.FuncAnimation(fig, animate,
                               init_func=init,
                               interval=2, blit=True)
 plt.show()
-ani.save(out_file + '.mp4', fps=24)
+#ani.save(out_file + '.mp4', fps=24)
 
