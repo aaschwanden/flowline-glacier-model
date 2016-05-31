@@ -353,18 +353,6 @@ points = np.array([0.0,0.4688,0.8302,1.0])
 weights = np.array([0.4876/2.,0.4317,0.2768,0.0476])
 
 vi = VerticalIntegrator(points, weights)
-
-
-######################################################################
-#######################   RESTART    #################################
-######################################################################
-
-if init_file is not None:
-    xinit,tinit,Hinit,Suinit,Slinit,Binit,usinit,ubinit,grinit,glinit,adotinit,bdotinit = pickle.load(open(init_file, 'rb'))
-    H0 = function_from_array(xinit, Hinit, Q, mesh)
-    B = function_from_array(xinit, Binit, Q, mesh)
-    grounded = function_from_array(xinit, grinit, Q, mesh)
-
     
 
 ########################################################
@@ -459,6 +447,7 @@ b_g = rhs(R_g)
 assigner_inv = FunctionAssigner([Q,Q,Q], V)
 assigner     = FunctionAssigner(V, [Q,Q,Q])
 
+
 #####################################################################
 ######################  Variational Solvers  ########################
 #####################################################################
@@ -482,7 +471,7 @@ mass_solver.parameters['snes_solver']['relative_tolerance'] = 1e-3
 mass_solver.parameters['snes_solver']['absolute_tolerance'] = 1e-3
 mass_solver.parameters['snes_solver']['error_on_nonconvergence'] = True
 mass_solver.parameters['snes_solver']['linear_solver'] = 'mumps'
-mass_solver.parameters['snes_solver']['maximum_iterations'] = 500
+mass_solver.parameters['snes_solver']['maximum_iterations'] = 100
 mass_solver.parameters['snes_solver']['report'] = False
 
 # Bounds
@@ -502,9 +491,6 @@ x = mesh.coordinates().ravel()
 SS = project(S)
 us = project(u(0))
 ub = project(u(1))
-if init_file is not None:
-    us = function_from_array(xinit, usinit, Q, mesh)
-    ub = function_from_array(xinit, ubinit, Q, mesh)
 
 adot_p = project(adot, Q).vector().array()
 
@@ -516,6 +502,8 @@ Hdata = []
 Sudata = []
 Sldata = []
 Bdata = []
+ubardata = []
+udefdata = []
 usdata = []
 ubdata = []
 gldata = []
@@ -535,6 +523,21 @@ t_end = te
 dt.assign(dt_float)
 
 assigner.assign(U, [ze,ze,H0])
+
+######################################################################
+#######################   RESTART    #################################
+######################################################################
+
+if init_file is not None:
+    xinit,Hinit,Binit,ubarinit,udefinit,grinit = pickle.load(open(init_file, 'rb'))
+    H0 = function_from_array(xinit, Hinit, Q, mesh)
+    B = function_from_array(xinit, Binit, Q, mesh)
+    un = function_from_array(xinit, ubarinit, Q, mesh)
+    u2n = function_from_array(xinit, udefinit, Q, mesh)
+    # Set previous time step variables
+    assigner.assign(U,[un,u2n,H0])
+    grounded = function_from_array(xinit, grinit, Q, mesh)
+
 
 # Loop over time
 while t < t_end:
@@ -573,6 +576,7 @@ while t < t_end:
     us = project(u(0))
     ub = project(u(1))
 
+    
     P = None
     if precip_model in 'orog':
         adot, P = get_adot_from_orog_precip(ltop_constants)
@@ -585,8 +589,9 @@ while t < t_end:
     Sudata.append(project(S_u).vector().array())
     Sldata.append(project(S_l).vector().array())
     Bdata.append(project(B).vector().array())
-    # Bdata.append(B.vector().array())
     gldata.append(gl(0))
+    ubardata.append(un.vector().array())
+    udefdata.append(u2n.vector().array())
     usdata.append(us.vector().array())
     ubdata.append(ub.vector().array())
     grdata.append(grounded.vector().array())
@@ -598,8 +603,8 @@ while t < t_end:
     t += dt_float
 
 # Save relevant data to pickle
-pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
-pickle.dump((x,tdata[-1],Hdata[-1],Sudata[-1],Sldata[-1],Bdata[-1],usdata[-1],ubdata[-1],grdata[-1],gldata[-1],adotdata[-1],bdotdata[-1]), open('init_' + out_file + '.p', 'w'))
+pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,ubardata,udefdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
+pickle.dump((x,Hdata[-1],Bdata[-1],ubardata[-1],udefdata[-1],grdata[-1]), open('init_' + out_file + '.p', 'w'))
     
 def animate(i):
     line_su.set_ydata(Sudata[i])  
