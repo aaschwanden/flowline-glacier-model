@@ -364,9 +364,6 @@ if init_file is not None:
     H0 = function_from_array(xinit, Hinit, Q, mesh)
     B = function_from_array(xinit, Binit, Q, mesh)
     grounded = function_from_array(xinit, grinit, Q, mesh)
-    # Doesn't work, would be overridden in lines 506-07 anyway
-    us = function_from_array(xinit, usinit, Q, mesh)
-    ub = function_from_array(xinit, ubinit, Q, mesh)
 
     
 
