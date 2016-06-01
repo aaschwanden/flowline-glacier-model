@@ -17,7 +17,6 @@ from scipy.interpolate import interp1d
 import pickle
 import pylab as plt
 from linear_orog_precip import OrographicPrecipitation
-from cf_units import Unit
 set_log_level(30)
 
 parser = ArgumentParser()
@@ -47,11 +46,11 @@ geom = options.geom
 precip_model = options.precip_model
 ta = options.ta
 te = options.te
-dt_float = options.dt
+dt_float = np.abs(options.dt)  # ensure positivity of time step
 erosion = options.erosion
 
 precip_scale_factor = 2  # Tuning factor for magnitude
-update_lag = 100
+update_lag = 5
 
 erosion_constants = dict()
 erosion_constants['K'] = 2.7e-7
@@ -282,7 +281,7 @@ ghat = Function(Q)                     # Temp grounded
 gl = Constant(0)                       # Scalar grounding line
 
 Smax = 2500.    # above Smax, adot=amax [m]
-Smin =  200.     # below Smin, adot=amin [m]
+Smin =  200.    # below Smin, adot=amin [m]
 Sela = 1000.    # equilibrium line altidue [m]
 
 bmelt = -150.   # sub-shelf melt rate [m year-1]
@@ -529,17 +528,23 @@ assigner.assign(U, [ze,ze,H0])
 ######################################################################
 
 if init_file is not None:
-    xinit,Hinit,Binit,ubarinit,udefinit,grinit = pickle.load(open(init_file, 'rb'))
-    H0 = function_from_array(xinit, Hinit, Q, mesh)
-    B = function_from_array(xinit, Binit, Q, mesh)
-    un = function_from_array(xinit, ubarinit, Q, mesh)
-    u2n = function_from_array(xinit, udefinit, Q, mesh)
-    # Set previous time step variables
+    '''
+    Restart from file
+    '''
+    hdf = HDF5File(mpi_comm_world(), init_file, 'r')
+    hdf.read(mesh, 'mesh', False)
+    hdf.read(H0, 'H0')
+    hdf.read(un, 'ubar')
+    hdf.read(u2n, 'udef')
+    hdf.read(grounded, 'grounded')
     assigner.assign(U,[un,u2n,H0])
-    grounded = function_from_array(xinit, grinit, Q, mesh)
 
-
+# Save last time step for restarting purposes
+hdf = HDF5File(mesh.mpi_comm(), out_file + '.h5', 'w')
+hdf.write(mesh, 'mesh')
+    
 # Loop over time
+i = 0
 while t < t_end:
     time.append(t)
 
@@ -556,6 +561,7 @@ while t < t_end:
             l = erosion_constants['l']
             mdot =  K * abs(ub)**l  * grounded
             B -= mdot * (update_lag/dt)
+            print('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3))
 
     # Try solving with last solution as initial guess for next solution
     try:
@@ -598,14 +604,42 @@ while t < t_end:
     adotdata.append(adot_p)
     bdotdata.append(bdot_p)
     Pdata.append(P)
+
+    hdf.write(project(S), 'S', i)
+    hdf.write(project(S_l), 'Sl', i)
+    hdf.write(project(S_u), 'Su', i)
+    hdf.write(project(B), 'B', i)
+    hdf.write(H0, 'H0', i)
+    hdf.write(un, 'ubar', i)
+    hdf.write(u2n, 'udef', i)
+    hdf.write(grounded, 'grounded', i)
+    i += 1
     
     print('Year {:2.2f}, Hmax {:2.0f}, adotmax {:2.2f}'.format(t, H0.vector().max(), adot_p.max()))
     t += dt_float
 
+del hdf
+
 # Save relevant data to pickle
 pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,ubardata,udefdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
-pickle.dump((x,Hdata[-1],Bdata[-1],ubardata[-1],udefdata[-1],grdata[-1]), open('init_' + out_file + '.p', 'w'))
-    
+
+# Save last time step for restarting purposes
+hdf = HDF5File(mesh.mpi_comm(), 'init_' + out_file + '.h5', 'w')
+hdf.write(mesh, 'mesh')
+hdf.write(project(S), 'S')
+hdf.write(project(S_l), 'Sl')
+hdf.write(project(S_u), 'Su')
+hdf.write(project(B), 'B')
+hdf.write(H0, 'H0')
+hdf.write(un, 'ubar')
+hdf.write(u2n, 'udef')
+hdf.write(grounded, 'grounded')
+
+del hdf
+
+
+# Visualization
+
 def animate(i):
     line_su.set_ydata(Sudata[i])  
     line_sl.set_ydata(Sldata[i])
