@@ -119,7 +119,7 @@ def get_adot_from_orog_precip(ltop_constants):
     Pscale = ltop_constants['Pscale']
     Pstar = ltop_constants['Pstar']
 
-    x_a, y_a = array_from_function(project(B, Q), Q, mesh)
+    x_a, y_a = array_from_function(project(S, Q), Q, mesh)
    
     XX, YY = np.meshgrid(x_a, range(3))
     Orography = np.tile(y_a, (3, 1))
@@ -291,7 +291,7 @@ if precip_model in 'linear':
     bdot = Constant(0.)
 elif precip_model in 'orog':
     adot, P = get_adot_from_orog_precip(ltop_constants)
-    bdot = conditional(gt(Hmid, np.abs(bmelt) * dt), bmelt * dt, -Hmid) * (1 - grounded)
+    bdot = conditional(gt(Hmid, np.abs(bmelt)), bmelt * dt, -Hmid) * (1 - grounded)
 else:
     print('precip model {} not supported'.format(precip_model))
 
@@ -539,7 +539,7 @@ if init_file is not None:
     hdf.read(grounded, 'grounded')
     assigner.assign(U,[un,u2n,H0])
 
-# Save last time step for restarting purposes
+# Save the time series
 hdf = HDF5File(mesh.mpi_comm(), out_file + '.h5', 'w')
 hdf.write(mesh, 'mesh')
     
@@ -562,6 +562,7 @@ while t < t_end:
             mdot =  K * abs(ub)**l  * grounded
             B -= mdot * (update_lag/dt)
             print('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3))
+
 
     # Try solving with last solution as initial guess for next solution
     try:
