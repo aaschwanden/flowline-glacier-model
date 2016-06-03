@@ -18,6 +18,8 @@ import pickle
 import pylab as plt
 from linear_orog_precip import OrographicPrecipitation
 set_log_level(30)
+import sys
+sys.setrecursionlimit(10000)
 
 parser = ArgumentParser()
 parser.add_argument('-i', dest='init_file',
@@ -28,7 +30,7 @@ parser.add_argument('--smb', dest='precip_model',
                     choices=['linear', 'orog'],
                     help='Precip model', default='linear')
 parser.add_argument('--geom', dest='geom',
-                    choices=['sym', 'asym'],
+                    choices=['sym', 'asym', '1sided'],
                     help='Bed geometry.', default='sym')
 parser.add_argument('-a', '--t_start', dest='ta', type=float,
                     help='Start year', default=0.)
@@ -181,20 +183,40 @@ dt = Constant(0)                     # Constant time step (gets changed below)
 
 my_dx = 1000.  # [m]
 x = np.arange(-L, L + my_dx, my_dx)  # [m]
-h_max = 2500.  # [m]
+amp = 100.0           # Geometry oscillation parameters
+zmax = 2500.  # [m]
 x0 = 0
 sigma_x = 15e3
 sigma_x1 = 5e3
 sigma_x2 = 15e3
 
+# Correlation matrix for random topography
+N = len(x)
+corr_len = 2000.0
+corr = np.zeros((N,N))
+for i in range(N):
+    for j in range(i+1):
+        corr[i,j] = exp(-abs(x[i]-x[j])**2/corr_len**2)
+        corr[j,i] = exp(-abs(x[i]-x[j])**2/corr_len**2)
+
+# Amplitude of random perturbations
+rand_amp = 0.0
+cov = rand_amp**2 * corr
+z_noise = np.random.multivariate_normal(np.zeros(N),cov)
+iii = interp1d(x,z_noise)
+
 # Bed elevation Expression
 class BedSym(Expression):
   def eval(self, values, x):
-    values[0] = h_max * exp(-(((x[0]-x0)**2/(2*sigma_x**2)))) + zmin
+    values[0] = zmax * exp(-(((x[0]-x0)**2/(2*sigma_x**2)))) + zmin
     
 class BedAsym(Expression):
   def eval(self, values, x):
-    values[0] = h_max * conditional(gt(x[0], 0), exp(-(((x[0]-x0)**2/(2*sigma_x1**2)))), exp(-(((x[0]-x0)**2/(2*sigma_x2**2))))) + zmin
+    values[0] = zmax * conditional(gt(x[0], 0), exp(-(((x[0]-x0)**2/(2*sigma_x1**2)))), exp(-(((x[0]-x0)**2/(2*sigma_x2**2))))) + zmin
+
+class Bed1Sided(Expression):
+  def eval(self,values,x):
+    values[0] = (zmax - zmin)*exp(-(x[0]+L)/(L*0.3)) + zmin - amp*(sin(4*pi*x[0]/L)) + iii(x[0])
 
 # Basal traction Expression
 class Beta2(Expression):
@@ -224,8 +246,12 @@ ds = ds[ocean]
 for f in facets(mesh):
     if near(f.midpoint().x(), L):
        ocean[f] = 1
-    if near(f.midpoint().x(), -L):
-       ocean[f] = 1
+       if near(f.midpoint().x(), -L):
+           if geom in '1sided':
+            ocean[f] = 2
+           else:
+            ocean[f] = 1
+               
 
 # Facet normals
 normal = FacetNormal(mesh)
@@ -246,7 +272,11 @@ if geom in 'sym':
     B = interpolate(BedSym(), Q)         # Bed elevation function
 elif geom in 'asym':
     B = interpolate(BedAsym(), Q)
-
+elif geom in '1sided':
+    B = interpolate(Bed1Sided(), Q)
+else:
+    print('{} not supported'.format(geom))
+    
 beta2 = interpolate(Beta2(), Q)          # Basal traction function
 
 #########################################################
@@ -456,9 +486,12 @@ assigner     = FunctionAssigner(V, [Q,Q,Q])
 # Ice divide dirichlet bc
 bc = DirichletBC(V.sub(2),thklim,lambda x,on: near(x[0],-L) and on)
 
-# No Dirichlet BCs for symmetric geometry, both sides are ocean
-# mass_problem = NonlinearVariationalProblem(R,U,bcs=[bc],J=J,form_compiler_parameters=ffc_options)
-mass_problem = NonlinearVariationalProblem(R, U, J=J,
+if geom in '1sided':
+    mass_problem = NonlinearVariationalProblem(R,U,bcs=[bc],J=J,
+                                               form_compiler_parameters=ffc_options)
+else:
+    # No Dirichlet BCs for symmetric geometry, both sides are ocean
+    mass_problem = NonlinearVariationalProblem(R, U, J=J,
                                            form_compiler_parameters=ffc_options)
 
 # Account for thickness positivity by using vi-newton-rsls solver from PETSc
@@ -621,8 +654,8 @@ while t < t_end:
 
 del hdf
 
-# Save relevant data to pickle
-pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,ubardata,udefdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
+# # Save relevant data to pickle
+# pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,ubardata,udefdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
 
 # Save last time step for restarting purposes
 hdf = HDF5File(mesh.mpi_comm(), 'init_' + out_file + '.h5', 'w')
@@ -679,7 +712,7 @@ ax[2].set_xlabel('x (km)')
 ani = animation.FuncAnimation(fig, animate,
                               frames=len(tdata),
                               init_func=init,
-                              interval=2, blit=True)
+                              interval=5, blit=True)
+ani.save(out_file + '.mp4', fps=24, extra_args=['-vcodec', 'libx264'])
 plt.show()
-#ani.save(out_file + '.mp4', fps=24)
 
