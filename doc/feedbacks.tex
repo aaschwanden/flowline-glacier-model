@@ -1,0 +1,299 @@
+% -*-coding: latin-1-dos;-*-
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{natbib} 
+\usepackage{textcomp}
+\usepackage[OT1,T1]{fontenc}
+\usepackage[table]{xcolor}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{mdframed}
+%\usepackage{wrapfig}
+\usepackage[retainorgcmds]{IEEEtrantools}
+
+\captionsetup{margin=10pt,labelfont=bf}
+% check if we are compiling under latex or pdflatex
+\ifx\pdftexversion\undefined 
+\usepackage[dvips]{graphicx} 
+\else
+\usepackage[pdftex]{graphicx}
+\fi
+
+\usepackage{iftex} 
+\ifXeTeX 
+\usepackage{fontspec}
+\setmainfont[Ligatures=TeX]{Times New Roman}
+\usepackage[xetex,hidelinks]{hyperref} 
+\else
+\usepackage[pdftex,hidelinks]{hyperref} 
+\fi
+\usepackage{pdfpages}
+\usepackage{tikz}
+\usetikzlibrary{arrows,chains,shapes}
+\bibliographystyle{chicago}
+\graphicspath{{figures/}}
+\hyphenation{pa-ra-me-tri-za-tion}
+\hyphenation{analy-sis}
+\hyphenation{par-ti-ci-pa-tion}
+
+\usepackage[font=small,skip=0pt]{caption}
+
+\usepackage[automark,headsepline,footsepline]{scrpage2}
+\clearscrheadings	% definition headings loeschen
+\cfoot{\pagemark}
+
+
+
+\begin{document}
+
+\title{Feedbacks between Orographic Precipitation, Erosion, and Ice Dynamics}
+
+\author{Andy Aschwanden\\ Geophysical Institute\\ University of Alaska Fairbanks}
+
+\maketitle
+
+\section{Background}
+
+Orographic precipitation occurs when moist air moves over a mountain range. As the air rises, expands, and cools, water vapor condenses and the resulting clouds serve as the source for precipitation, most of which falls on the wet (upwind) side of the mountain range \citep[e.g.,][]{Roe2005}.  On the dry  (downwind) side, precipitation is typically low and the area is said to be in a rain shadow. For a prominent mountain range that is oriented perpendicular to a prevailing wind and situated immediately downwind from open water, the maritime climate can bring extreme heavy precipitation on the wet side. In meso-scale (100's\,km) to synoptic-scale (1000\,km) settings, orographic precipitation has not only a profound effect on the topography of mountain ranges sculpted by rivers or glaciers \citep[e.g.,][]{Roe2003}, but also on its internal structure through localized zones of exhumation during orogenesis \citep[e.g.,][]{Willett1999}. 
+
+When ice overtops the bedrock to form ice sheets (such that ice dynamics controls the position of the topographic divide), ice dynamics allows the feedbacks between orographic precipitation and surface topography to occur on timescales much shorter than for orogenesis. For meso-scale ice sheets, in particular, the ice-dynamic response time may be of the same order of magnitude as climate change (hundreds to thousands of years) resulting in rapid feedback adjustment.
+
+\begin{figure}[htb!]
+\begin{center}
+\includegraphics[width=.97\textwidth]{figures/overview.png} 
+\vspace{-0.5em}
+\end{center}
+\caption{ The Antarctic Peninsula. ({\bf A}) Surface topography \citep{Cook2012} and profile from Barilari Bay (B') to Leppard Glacier (L') (orange line). ({\bf B}) Subglacial topography \citep{Huss2014a}. ({\bf C}) Balance flux estimate, log scale, based on RACMO2.1/ANT \citep[solid orange line,][]{van2015temperature} ({\bf D}) Profile of surface topography (blue line), RACMO2.1/ANT surface mass balance (SMB), and precipitation from our preliminary application of the Smith and Barstad (2004) linear orographic precipitation model (dashed orange line). Background: Quantarctica2 basemap distributed by the Norwegian Polar Institute.}
+\label{f:overview}
+\end{figure}
+
+
+The Northern Antarctic Peninsula (Fig.~\ref{f:overview}) is a north-south trending mountain range embedded in prevailing westerly winds The climate is dominated by orographic precipitation \citep[Fig.~\ref{f:overview}D and][]{Simmonds2003}: high precipitation ($\approx$10\,m/yr) on the western, wet side of the mountain range contrasts with low precipitation ($\approx$0.1\,m/yr) on the eastern, dry side, it thus makes an interesting test case for orgraphic precipiation and subglacial erosion.
+
+\section{Orographic Precipitation Model}
+
+The main requirements for the orographic precipitation module are that it encapsulates the basics physics of orographic precipitation; that it can be calibrated to emulate the precipitation climatology; and that it represents reasonable changes of precipitation in response to changing orography. 
+
+The orographic precipitation model of \cite{Smith2004} provides the ideal tool for this application. It was designed to investigate controls on the pattern of orographic precipitation on synoptic spatial scales ($\approx$100km), meaning that individual weather events tend to produce precipitation over the whole domain). The model explicitly represents of a rich set of processes: the linear atmospheric response to flow over terrain; the stability of the atmospheric column to vertical displacement; the vertical depth scale of atmospheric moisture; and the timescales associated with the cloud processes that convert condensation into hydrometeors (snow or rain), and the fallout of those hydrometeors. The model captures the orographic rain shadow as well as patterns at the ridge-valley scale. It is linear and so can be solved efficiently using Fourier transform methods; and it can be used for idealized cross sections across the ice cap as well as for the full three-dimensional terrains. A preliminary calculation for the northern Antarctic peninsula (Fig.~1D) shows that the Smith and Barstad model is capable to emulate the along-wind precipitation predicted by the high-resolution regional climate model RACMO/ANT. The Smith and Barstad model consists of two simple equations:
+\begin{IEEEeqnarray}{rCCCl}
+\label{eq:steadystate1}
+\frac{Dq_c}{Dt} & \approx & {\bf u} \cdot \nabla q_{c} & = &S\left({\bf u}, \nabla z, N^{2}, H_w \right)-\frac{q_{c}}{\tau_{c}}, \\
+\label{eq:steadystate2}
+\frac{Dq_h}{Dt} & \approx & {\bf u} \cdot \nabla q_{h} & = & \frac{q_{c}}{\tau_{c}} - \frac{q_{h}}{\tau_{f}},
+\end{IEEEeqnarray}
+where $q_{c}$ and $q_{h}$ are the vertically integrated cloud water density and hydrometeor density respectively; and ${\bf u}$ is the prevailing wind at low levels. $S$ is the condensation source function and depends on ${\bf u}$, orographic slopes ($\nabla z$), atmospheric stability ($N^{2})$, and vertical moisture scale height ($H_{w}$). $\tau_{c}$ is the time required to convert cloud water into hydrometeors, and $\tau_{f}$ is the time required for hydrometeors to reach the ground. Both timescales are $\mathcal{O}(10^{3}$\,s). Precipitation, $P$, is given by the rate of hydrometeor fallout, $P = \frac{q_{h}}{\tau_{f}}$.
+
+The Smith and Barstad model has been widely tested both for individual storms \citep{Barstad2005,Roe2007} and for the climatological average \citep{Smith2004,Smith2005,Smith2007a}, including specifically for cold climates \citep{Anders2008,Schuler2008,Jarosch2012,Barstad2013}. When calibrated to specific setting, it captures the main features of the across-range rain shadow as well as ridge-valley scale variations. The Smith and Barstad model should be regarded as an elegant representation of the basic physics of orographic precipitation with parameters ($\tau_{f}$, $\tau_{c}$, $H_{w}$, $N^{2}$) that can be compared to physical values, rather than being a direct simplification of the equations of motion. On climatological timescales the model is generally used to represent the orographically-modified
+ component of the precipitation and combined with an assumed background precipitation rate calibrated to climatological observations \citep[e.g., ][]{Anders2008,Jarosch2012}. The Smith and Barstad model does not represent nonlinear mountain airflow such as barrier jets \citep[e.g., ][]{Galewsky2009a}. Blocking has been identified as present for the Antarctic peninsula (Orr et al., 2008), and in principle can be incorporated in the Smith and Barstad model by adding virtual topography (i.e., a layer of blocked air). We do not expect to miss any important feedbacks---the main purpose of the model is to provide realistic changes in precipitation in response to changing orography. 
+
+
+\section{Glacial Erosion Models}
+
+Several different formulations has been proposed for a glacial erosion law. A standard assumption is that erosion, $\dot{e}$, scales as a power-law function of the sliding velocity: $u_s$: 
+\begin{equation}
+\dot{e} = K u_s^l.
+\end{equation} 
+The most common assumption is that $l \simeq 1$ \citep[e.g., ][]{Harbor1992,Humphrey1994} but $l = 2$ has been proposed as the appropriate scaling for glacial abrasion \citep{Hallet1979}, and has recently received observational support for Alpine glaciers \citep{Herman2015}. It has also been suggested that erosion is proportional to basal stress: $\dot{e} = K \tau_b u_s^l$, where $\tau_b$ is the basal stress \citep{Pollard2003}, or that erosion scales simply with ice flux (Anderson et al., 2006). These various erosion laws carry different patterns of erosion \citep{Tomkin2007,Headley2012a} and a different dependence on ice flux and topography. \cite{Headley2012} presented solutions for the basal profiles that would be in equilibrium with a uniform uplift rate and a prescribed accumulation pattern.
+
+
+\section{The Code}
+
+Here we use a higher-order flow model that is written in python, implemented in FEniCS, and uses the Finite Element Method; details of the underlying numerical approximation and forumulation is given in  \cite{Brinkerhoff2015a}. The flow model is isothermal.
+
+\section{Research Questions}
+
+Many interesting research questions can be addressed with our coupled model, for example:
+\begin{itemize}
+\item How does orgraphic precipitation depend on the shape of the mountain range (e.g. height, width, symmetric vs asymmetric)?
+\item What are the timescales of erosion, compared to ice dynamics?
+\item Can glaciers exist in the rain shadow, i.e. on the lee side of the mountain?
+\item Using the same initial topography, how sensitive are erosion patterns to the erosion law?
+\end{itemize}
+Ideally, the exact direction we'll take is driven by the students.
+
+
+\begin{thebibliography}{}
+
+\bibitem[\protect\citeauthoryear{Anders, Roe, Montgomery, and Hallet}{Anders
+  et~al.}{2008}]{Anders2008}
+Anders, A.~M., G.~H. Roe, D.~R. Montgomery, and B.~Hallet (2008).
+\newblock {Influence of precipitation phase on the form of mountain ranges}.
+\newblock {\em Geology\/}~{\em 36\/}(6), 479--482.
+
+\bibitem[\protect\citeauthoryear{Barstad and Caroletti}{Barstad and
+  Caroletti}{2013}]{Barstad2013}
+Barstad, I. and G.~N. Caroletti (2013, jul).
+\newblock {Orographic precipitation across an island in southern Norway: model
+  evaluation of time-step precipitation}.
+\newblock {\em Quarterly Journal of the Royal Meteorological Society\/}~{\em
+  139\/}(675), 1555--1565.
+
+\bibitem[\protect\citeauthoryear{Barstad and Smith}{Barstad and
+  Smith}{2005}]{Barstad2005}
+Barstad, I. and R.~B. Smith (2005).
+\newblock {Evaluation of an orographic precipitation model}.
+\newblock {\em Journal of Hydrometeorology\/}~{\em 6\/}(1), 85--99.
+
+\bibitem[\protect\citeauthoryear{Brinkerhoff and Johnson}{Brinkerhoff and
+  Johnson}{2015}]{Brinkerhoff2015a}
+Brinkerhoff, D.~J. and J.~V. Johnson (2015, sep).
+\newblock {Dynamics of thermally induced ice streams simulated with a
+  higher-order flow model}.
+\newblock {\em Journal of Geophysical Research: Earth Surface\/}~{\em
+  120\/}(9), 1743--1770.
+
+\bibitem[\protect\citeauthoryear{Cook, Murray, Luckman, Vaughan, and
+  Barrand}{Cook et~al.}{2012}]{Cook2012}
+Cook, A.~J., T.~Murray, A.~Luckman, D.~G. Vaughan, and N.~E. Barrand (2012).
+\newblock {A new 100-m Digital Elevation Model of the Antarctic Peninsula
+  derived from ASTER Global DEM: methods and accuracy assessment}.
+\newblock {\em Earth System Science Data\/}~{\em 5\/}(1), 365--403.
+
+\bibitem[\protect\citeauthoryear{Galewsky}{Galewsky}{2009}]{Galewsky2009a}
+Galewsky, J. (2009).
+\newblock {Rain shadow development during the growth of mountain ranges: An
+  atmospheric dynamics perspective}.
+\newblock {\em Journal of Geophysical Research: Earth Surface\/}~{\em
+  114\/}(1), 1--17.
+
+\bibitem[\protect\citeauthoryear{Hallet}{Hallet}{1979}]{Hallet1979}
+Hallet, B. (1979).
+\newblock {A theoretical model of glacial abrasion}.
+\newblock {\em J. Glaciol.\/}~{\em 23\/}(89), 39--50.
+
+\bibitem[\protect\citeauthoryear{Harbor}{Harbor}{1992}]{Harbor1992}
+Harbor, J.~M. (1992, oct).
+\newblock {Numerical modeling of the development of U-shaped valleys by glacial
+  erosion}.
+\newblock {\em Geological Society of America Bulletin\/}~{\em 104\/}(10),
+  1364--1375.
+
+\bibitem[\protect\citeauthoryear{Headley, Hallet, Roe, Waddington, and
+  Rignot}{Headley et~al.}{2012}]{Headley2012a}
+Headley, R., B.~Hallet, G.~Roe, E.~D. Waddington, and E.~Rignot (2012, sep).
+\newblock {Spatial distribution of glacial erosion rates in the St. Elias
+  range, Alaska, inferred from a realistic model of glacier dynamics}.
+\newblock {\em Journal of Geophysical Research: Earth Surface\/}~{\em
+  117\/}(F3), n/a--n/a.
+
+\bibitem[\protect\citeauthoryear{Headley, Roe, and Hallet}{Headley
+  et~al.}{2012}]{Headley2012}
+Headley, R.~M., G.~Roe, and B.~Hallet (2012, feb).
+\newblock {Glacier longitudinal profiles in regions of active uplift}.
+\newblock {\em Earth and Planetary Science Letters\/}~{\em 317-318}, 354--362.
+
+\bibitem[\protect\citeauthoryear{Herman, Beyssac, Brughelli, Lane, Leprince,
+  Adatte, Lin, Avouac, and Cox}{Herman et~al.}{2015}]{Herman2015}
+Herman, F., O.~Beyssac, M.~Brughelli, S.~N. Lane, S.~Leprince, T.~Adatte,
+  J.~Y.~Y. Lin, J.-P. Avouac, and S.~C. Cox (2015).
+\newblock {Erosion by an Alpine glacier}.
+\newblock {\em Science\/}~{\em 350\/}(6257), 193--195.
+
+\bibitem[\protect\citeauthoryear{Humphrey and Raymond}{Humphrey and
+  Raymond}{1994}]{Humphrey1994}
+Humphrey, N.~F. and C.~F. Raymond (1994).
+\newblock {Hydrology, erosion and sediment production in a surging glacier:
+  Variegated Glacier, Alaska, 1982-83}.
+\newblock {\em J. Glaciol.\/}~{\em 40\/}(136), 539--552.
+
+\bibitem[\protect\citeauthoryear{Huss and Farinotti}{Huss and
+  Farinotti}{2014}]{Huss2014a}
+Huss, M. and D.~Farinotti (2014).
+\newblock {A high-resolution bedrock map for the Antarctic Peninsula}.
+\newblock {\em Cryosphere\/}~{\em 8\/}(4), 1261--1273.
+
+\bibitem[\protect\citeauthoryear{Jarosch, Anslow, and Clarke}{Jarosch
+  et~al.}{2012}]{Jarosch2012}
+Jarosch, A.~H., F.~S. Anslow, and G.~K.~C. Clarke (2012, jan).
+\newblock {High-resolution precipitation and temperature downscaling for
+  glacier models}.
+\newblock {\em Climate Dynamics\/}~{\em 38\/}(1-2), 391--409.
+
+\bibitem[\protect\citeauthoryear{Pollard and DeConto}{Pollard and
+  DeConto}{2003}]{Pollard2003}
+Pollard, D. and R.~M. DeConto (2003).
+\newblock {Antarctic ice and sediment flux in the Oligocene simulated by a
+  climate-ice sheet-sediment model}.
+\newblock {\em Palaeogeography, Palaeoclimatology, Palaeoecology\/}~{\em
+  198\/}(1-2), 53--67.
+
+\bibitem[\protect\citeauthoryear{Roe}{Roe}{2003}]{Roe2003}
+Roe, G.~H. (2003).
+\newblock {Orographic precipitation and the relief of mountain ranges}.
+\newblock {\em Journal of Geophysical Research\/}~{\em 108\/}(B6), 1--12.
+
+\bibitem[\protect\citeauthoryear{Roe}{Roe}{2005}]{Roe2005}
+Roe, G.~H. (2005).
+\newblock {Orographic Precipitation}.
+\newblock {\em Annual Review of Earth and Planetary Sciences\/}~{\em 33\/}(1),
+  645--671.
+
+\bibitem[\protect\citeauthoryear{Roe and Baker}{Roe and Baker}{2007}]{Roe2007}
+Roe, G.~H. and M.~B. Baker (2007).
+\newblock {Why is climate sensitivity so unpredictable?}
+\newblock {\em Science\/}~{\em 318\/}(5850), 629--32.
+
+\bibitem[\protect\citeauthoryear{Schuler, Crochet, Hock, Jackson, Barstad, and
+  J{\'{o}}hannesson}{Schuler et~al.}{2008}]{Schuler2008}
+Schuler, T.~V., P.~Crochet, R.~Hock, M.~Jackson, I.~Barstad, and
+  T.~J{\'{o}}hannesson (2008, sep).
+\newblock {Distribution of snow accumulation on the Svartisen ice cap, Norway,
+  assessed by a model of orographic precipitation}.
+\newblock {\em Hydrological Processes\/}~{\em 22\/}(19), 3998--4008.
+
+\bibitem[\protect\citeauthoryear{Simmonds}{Simmonds}{2003}]{Simmonds2003}
+Simmonds, I. (2003).
+\newblock Regional and large-scale influences on {A}ntarctic {P}eninsula
+  climate.
+\newblock In {\em {Antarctic Peninsula Climate Variability}}, pp.\  31--42.
+  American Geophysical Union.
+
+\bibitem[\protect\citeauthoryear{Smith and Barstad}{Smith and
+  Barstad}{2004}]{Smith2004}
+Smith, R.~B. and I.~Barstad (2004).
+\newblock {A Linear Theory of Orographic Precipitation}.
+\newblock {\em Journal of the Atmospheric Sciences\/}~{\em 61\/}(12),
+  1377--1391.
+
+\bibitem[\protect\citeauthoryear{Smith, Barstad, and Bonneau}{Smith
+  et~al.}{2005}]{Smith2005}
+Smith, R.~B., I.~Barstad, and L.~Bonneau (2005, jan).
+\newblock {Orographic Precipitation and Oregon's Climate Transition}.
+\newblock {\em Journal of the Atmospheric Sciences\/}~{\em 62\/}(1), 177--191.
+
+\bibitem[\protect\citeauthoryear{Smith and Evans}{Smith and
+  Evans}{2007}]{Smith2007a}
+Smith, R.~B. and J.~P. Evans (2007, feb).
+\newblock {Orographic Precipitation and Water Vapor Fractionation over the
+  Southern Andes}.
+\newblock {\em Journal of Hydrometeorology\/}~{\em 8\/}(1), 3--19.
+
+\bibitem[\protect\citeauthoryear{Tomkin and Roe}{Tomkin and
+  Roe}{2007}]{Tomkin2007}
+Tomkin, J.~H. and G.~H. Roe (2007, oct).
+\newblock {Climate and tectonic controls on glaciated critical-taper orogens}.
+\newblock {\em Earth and Planetary Science Letters\/}~{\em 262\/}(3-4),
+  385--397.
+
+\bibitem[\protect\citeauthoryear{van Wessem, Reijmer, van~de Berg, van~den
+  Broeke, Cook, van Ulft, and van Meijgaard}{van Wessem
+  et~al.}{2015}]{van2015temperature}
+van Wessem, J.~M., C.~H. Reijmer, W.~J. van~de Berg, M.~R. van~den Broeke,
+  A.~J. Cook, L.~H. van Ulft, and E.~van Meijgaard (2015).
+\newblock Temperature and wind climate of the antarctic peninsula as simulated
+  by a high-resolution regional atmospheric climate model.
+\newblock {\em Journal of Climate\/}~{\em 28\/}(18), 7306--7326.
+
+\bibitem[\protect\citeauthoryear{Willett}{Willett}{1999}]{Willett1999}
+Willett, S.~D. (1999).
+\newblock Orogeny and orography: The effects of erosion on the structure of
+  mountain belts.
+\newblock {\em Journal of Geophysical Research: Solid Earth
+  (1978--2012)\/}~{\em 104\/}(B12), 28957--28981.
+
+\end{thebibliography}
+
+
+\end{document}
