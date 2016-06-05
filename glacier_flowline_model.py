@@ -1,4 +1,4 @@
-# ######################################################################
+#
 # Flowline glacier model with Linear Orographic Precipitation
 #
 # Andy Aschwanden, University of Alaska Fairbanks
@@ -6,7 +6,7 @@
 # this code is based on the work of:
 # glacier flow model: Doug Brinkerhoff, University of Alaska Fairbanks
 # orographic precipitation model: Leif Anderson, University of Iceland
-# ######################################################################
+#
 
 from dolfin import *
 from argparse import ArgumentParser
@@ -74,7 +74,6 @@ ltop_constants['Smax'] = 2500
 ltop_constants['Sela'] = -300
 ltop_constants['Pstar'] = 0.1  # background precip
 ltop_constants['Pscale'] = 5   # Precip scale factor
-ltop_constants['dt'] = 0.2
 
 
 def function_from_array(x, y, Q, mesh):
@@ -90,7 +89,7 @@ def function_from_array(x, y, Q, mesh):
     mesh_values = f_interp(mesh_x)
     my_f  = Function(Q)
     my_f.vector()[fx_dofs] = mesh_values
-    
+
     return my_f
 
 
@@ -98,13 +97,13 @@ def array_from_function(f, Q, mesh):
     '''
     Returns a function in FunctionSpace Q and mesh interpolated from array y
     '''
-    
+
     dim = Q.dim()
     N = mesh.geometry().dim()
     mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
     mesh_x = mesh_coor[:, 0]
     mesh_y = f.vector().array()
-    
+
     return mesh_x, mesh_y
 
 
@@ -122,24 +121,24 @@ def get_adot_from_orog_precip(ltop_constants):
     Pstar = ltop_constants['Pstar']
 
     x_a, y_a = array_from_function(project(S, Q), Q, mesh)
-   
+
     XX, YY = np.meshgrid(x_a, range(3))
     Orography = np.tile(y_a, (3, 1))
 
     UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['u'])
-    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['v'])    
+    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['v'])
     OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, ltop_constants)
 
     P = OP.P
-    P = P[1, :] * Pscale + Pstar
+    P = P[1,:] * Pscale + Pstar
 
     smb_S =  function_from_array(x_a, P, Q, mesh)
 
     return smb_S, P
 
-##########################################################
-###############   Dolfin options       ###################
-##########################################################
+#
+# Dolfin options       ###################
+#
 
 parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['representation'] = 'quadrature'
@@ -151,9 +150,9 @@ ffc_options = {"optimize": True, \
                "precompute_ip_const": True}
 
 
-##########################################################
-###############        CONSTANTS       ###################
-##########################################################
+#
+# CONSTANTS       ###################
+#
 
 L = 75000.            # Length scale [m]
 
@@ -176,13 +175,14 @@ eps_reg = 1e-5
 
 dt = Constant(0)                     # Constant time step (gets changed below)
 
-    
-#########################################################
-#################      GEOMETRY     #####################
-#########################################################
+
+#
+# GEOMETRY     #####################
+#
 
 my_dx = 1000.  # [m]
 x = np.arange(-L, L + my_dx, my_dx)  # [m]
+
 amp = 100.0           # Geometry oscillation parameters
 zmax = 2500.  # [m]
 x0 = 0
@@ -193,45 +193,45 @@ sigma_x2 = 15e3
 # Correlation matrix for random topography
 N = len(x)
 corr_len = 2000.0
-corr = np.zeros((N,N))
+corr = np.zeros((N, N))
 for i in range(N):
     for j in range(i+1):
-        corr[i,j] = exp(-abs(x[i]-x[j])**2/corr_len**2)
-        corr[j,i] = exp(-abs(x[i]-x[j])**2/corr_len**2)
+        corr[i, j] = exp(-abs(x[i]-x[j])**2/corr_len**2)
+        corr[j, i] = exp(-abs(x[i]-x[j])**2/corr_len**2)
 
 # Amplitude of random perturbations
 rand_amp = 0.0
 cov = rand_amp**2 * corr
-z_noise = np.random.multivariate_normal(np.zeros(N),cov)
-iii = interp1d(x,z_noise)
+z_noise = np.random.multivariate_normal(np.zeros(N), cov)
+iii = interp1d(x, z_noise)
 
 # Bed elevation Expression
 class BedSym(Expression):
-  def eval(self, values, x):
-    values[0] = zmax * exp(-(((x[0]-x0)**2/(2*sigma_x**2)))) + zmin
-    
+    def eval(self, values, x):
+        values[0] = zmax * exp(-(((x[0]-x0)**2/(2*sigma_x**2)))) + zmin
+
 class BedAsym(Expression):
-  def eval(self, values, x):
-    values[0] = zmax * conditional(gt(x[0], 0), exp(-(((x[0]-x0)**2/(2*sigma_x1**2)))), exp(-(((x[0]-x0)**2/(2*sigma_x2**2))))) + zmin
+    def eval(self, values, x):
+        values[0] = zmax * conditional(gt(x[0], 0), exp(-(((x[0]-x0)**2/(2*sigma_x1**2)))), exp(-(((x[0]-x0)**2/(2*sigma_x2**2))))) + zmin
 
 class Bed1Sided(Expression):
-  def eval(self,values,x):
-    values[0] = (zmax - zmin)*exp(-(x[0]+L)/(L*0.3)) + zmin - amp*(sin(4*pi*x[0]/L)) + iii(x[0])
+    def eval(self, values, x):
+        values[0] = (zmax - zmin)*exp(-(x[0]+L)/(L*0.3)) + zmin - amp*(sin(4*pi*x[0]/L)) + iii(x[0])
 
 # Basal traction Expression
 class Beta2(Expression):
-  def eval(self, values, x):
-    values[0] = 5e3
+    def eval(self, values, x):
+        values[0] = 5e3
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
 class Width(Expression):
-  def eval(self, values, x):
-    values[0] = 1
+    def eval(self, values, x):
+        values[0] = 1
 
 
-##########################################################
-################           MESH          #################
-##########################################################  
+#
+# MESH          #################
+#
 
 # Define a rectangular mesh
 nx = 1500                                  # Number of cells
@@ -240,32 +240,32 @@ mesh = IntervalMesh(nx, -L, L)            # Equal cell size
 X = SpatialCoordinate(mesh)               # Spatial coordinate
 
 ocean = FacetFunctionSizet(mesh, 0)       # Facet function for boundary conditions
-ds = ds[ocean] 
+ds = ds[ocean]
 
 # Label the left and right boundary as ocean
 for f in facets(mesh):
     if near(f.midpoint().x(), L):
-       ocean[f] = 1
-       if near(f.midpoint().x(), -L):
-           if geom in '1sided':
-            ocean[f] = 2
-           else:
-            ocean[f] = 1
-               
+        ocean[f] = 1
+        if near(f.midpoint().x(), -L):
+            if geom in '1sided':
+                ocean[f] = 2
+            else:
+                ocean[f] = 1
+
 
 # Facet normals
 normal = FacetNormal(mesh)
 
-#########################################################
-#################  FUNCTION SPACES  #####################
-#########################################################
+#
+# FUNCTION SPACES  #####################
+#
 
 Q = FunctionSpace(mesh, "CG", 1)
 V = MixedFunctionSpace([Q]*3)           # ubar,udef,H space
 
 ze = Function(Q)                        # Zero constant function
 
-grounded = Function(Q)                 # Boolean grounded function 
+grounded = Function(Q)                 # Boolean grounded function
 grounded.vector()[:] = 1
 
 if geom in 'sym':
@@ -276,19 +276,19 @@ elif geom in '1sided':
     B = interpolate(Bed1Sided(), Q)
 else:
     print('{} not supported'.format(geom))
-    
+
 beta2 = interpolate(Beta2(), Q)          # Basal traction function
 
-#########################################################
-#################  FUNCTIONS  ###########################
-#########################################################
+#
+# FUNCTIONS  ###########################
+#
 
-# VELOCITY 
+# VELOCITY
 U = Function(V)                        # Velocity function
 dU = TrialFunction(V)                  # Velocity trial function
 Phi = TestFunction(V)                  # Velocity test function
 
-u, u2, H = split(U)                       
+u, u2, H = split(U)
 phi, phi1, xsi = split(Phi)
 
 un = Function(Q)                       # Temp velocities
@@ -307,7 +307,7 @@ S = B + Hmid
 psi = TestFunction(Q)                  # Scalar test function
 dg = TrialFunction(Q)                  # Scalar trial function
 
-ghat = Function(Q)                     # Temp grounded 
+ghat = Function(Q)                     # Temp grounded
 gl = Constant(0)                       # Scalar grounding line
 
 Smax = 2500.    # above Smax, adot=amax [m]
@@ -317,45 +317,45 @@ Sela = 1000.    # equilibrium line altidue [m]
 bmelt = -150.   # sub-shelf melt rate [m year-1]
 
 if precip_model in 'linear':
-    adot = conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela -Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
+    adot = conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
     bdot = Constant(0.)
 elif precip_model in 'orog':
     adot, P = get_adot_from_orog_precip(ltop_constants)
-    bdot = conditional(gt(Hmid, np.abs(bmelt)), bmelt * dt, -Hmid) * (1 - grounded)
+    bdot = conditional(gt(Hmid, np.abs(bmelt)), bmelt, -Hmid) * (1 - grounded)
 else:
     print('precip model {} not supported'.format(precip_model))
 
- 
-########################################################
-#################   Numerics   #########################
-########################################################
+
+#
+# Numerics   #########################
+#
 
 # Heuristic spectral element basis
 class VerticalBasis(object):
-    def __init__(self,u,coef,dcoef):
+    def __init__(self, u, coef, dcoef):
         self.u = u
         self.coef = coef
         self.dcoef = dcoef
 
-    def __call__(self,s):
-        return sum([u*c(s) for u,c in zip(self.u,self.coef)])
+    def __call__(self, s):
+        return sum([u*c(s) for u, c in zip(self.u, self.coef)])
 
-    def ds(self,s):
-        return sum([u*c(s) for u,c in zip(self.u,self.dcoef)])
+    def ds(self, s):
+        return sum([u*c(s) for u, c in zip(self.u, self.dcoef)])
 
-    def dx(self,s,x):
-        return sum([u.dx(x)*c(s) for u,c in zip(self.u,self.coef)])
+    def dx(self, s, x):
+        return sum([u.dx(x)*c(s) for u, c in zip(self.u, self.coef)])
 
 
 # Vertical quadrature utility for integrating VerticalBasis class
 class VerticalIntegrator(object):
-    def __init__(self,points,weights):
+    def __init__(self, points, weights):
         self.points = points
         self.weights = weights
-    def integral_term(self,f,s,w):
+    def integral_term(self, f, s, w):
         return w*f(s)
-    def intz(self,f):
-        return sum([self.integral_term(f,s,w) for s,w in zip(self.points,self.weights)])
+    def intz(self, f):
+        return sum([self.integral_term(f, s, w) for s, w in zip(self.points, self.weights)])
 
 
 # Surface elevation gradients in z for coordinate change Jacobian
@@ -370,33 +370,33 @@ def dsdz(s):
 coef = [lambda s:1.0, lambda s:1./4.*(5*s**4-1.)]
 dcoef = [lambda s:0.0, lambda s:5*s**3]
 
-u_ = [U[0],U[1]]
-phi_ = [Phi[0],Phi[1]]
+u_ = [U[0], U[1]]
+phi_ = [Phi[0], Phi[1]]
 
 # Define function and test function in vertical
-u = VerticalBasis(u_,coef,dcoef)
-phi = VerticalBasis(phi_,coef,dcoef)
+u = VerticalBasis(u_, coef, dcoef)
+phi = VerticalBasis(phi_, coef, dcoef)
 
-# Quadrature points 
-points = np.array([0.0,0.4688,0.8302,1.0])
-weights = np.array([0.4876/2.,0.4317,0.2768,0.0476])
+# Quadrature points
+points = np.array([0.0, 0.4688, 0.8302, 1.0])
+weights = np.array([0.4876/2., 0.4317, 0.2768, 0.0476])
 
 vi = VerticalIntegrator(points, weights)
-    
 
-########################################################
-#################   Momentum Balance    ################
-########################################################
+
+#
+# Momentum Balance    ################
+#
 
 # Viscosity (isothermal)
 def eta_v(s):
-    return b/2.*((u.dx(s,0) + u.ds(s)*dsdx(s))**2 \
-                +0.25*((u.ds(s)*dsdz(s))**2) \
+    return b/2.*((u.dx(s, 0) + u.ds(s)*dsdx(s))**2 \
+                + 0.25*((u.ds(s)*dsdz(s))**2) \
                 + eps_reg)**((1.-n)/(2*n))
 
 # Membrane stress
 def membrane_xx(s):
-    return (phi.dx(s,0) + phi.ds(s)*dsdx(s))*Hmid*eta_v(s)*(4*(u.dx(s,0) + u.ds(s)*dsdx(s)))
+    return (phi.dx(s, 0) + phi.ds(s)*dsdx(s))*Hmid*eta_v(s)*(4*(u.dx(s, 0) + u.ds(s)*dsdx(s)))
 
 # Shear stress
 def shear_xz(s):
@@ -417,7 +417,7 @@ normalz = sqrt(1 - normalx**2)
 # Overburden
 P_0 = rho*g*Hmid
 # Water pressure (ocean only, no basal hydro.)
-P_w = Max(-rho_w*g*B,1e-16)
+P_w = Max(-rho_w*g*B, 1e-16)
 
 # basal shear stress
 tau_b = beta2*u(1)/(1.-normalx**2)*grounded
@@ -431,16 +431,16 @@ F_ocean_x = 1./2.*rho*g*(1-(rho/rho_w))*H**2*Phi[0]*ds(1)
 R += F_ocean_x
 
 
-#############################################################################
-##########################  MASS BALANCE  ###################################
-#############################################################################
+#
+# MASS BALANCE  ###################################
+#
 
 # SUPG parameters
 h = CellSize(mesh)
 D = h*abs(U[0])/2.
 
 # Width for including convergence/divergence
-width = interpolate(Width(),Q)
+width = interpolate(Width(), Q)
 area = Hmid*width
 
 # Add the SUPG-stabilized continuity equation to residual
@@ -450,9 +450,9 @@ R += ((H-H0)/dt*xsi  - xsi.dx(0)*U[0]*Hmid + D*xsi.dx(0)*Hmid.dx(0) - (adot + bd
 J = derivative(R, U, dU)
 
 
-#####################################################################
-############################  GL Dynamics  ##########################
-#####################################################################
+#
+# GL Dynamics  ##########################
+#
 
 # CN param for updating flotation condition
 theta_g = 0.9
@@ -461,33 +461,33 @@ theta_g = 0.9
 dtau = 0.2
 
 # Flotation condition
-ghat = conditional(Or(And(ge(rho*g*H,Max(P_w,1e-16)),ge(H,1.5*rho_w/rho*thklim)),ge(B,1e-16)),1,0)
+ghat = conditional(Or(And(ge(rho*g*H, Max(P_w, 1e-16)), ge(H, 1.5*rho_w/rho*thklim)), ge(B, 1e-16)), 1, 0)
 
 # Flotation update system
 R_g = psi*(dg - grounded + dtau*(dg*theta_g + grounded*(1-theta_g) - ghat))*dx
 A_g = lhs(R_g)
 b_g = rhs(R_g)
 
-#####################################################################
-#########################  I/O Functions  ###########################
-#####################################################################
+#
+# I/O Functions  ###########################
+#
 
-# For moving data between vector functions and scalar functions 
-assigner_inv = FunctionAssigner([Q,Q,Q], V)
-assigner     = FunctionAssigner(V, [Q,Q,Q])
+# For moving data between vector functions and scalar functions
+assigner_inv = FunctionAssigner([Q, Q, Q], V)
+assigner     = FunctionAssigner(V, [Q, Q, Q])
 
 
-#####################################################################
-######################  Variational Solvers  ########################
-#####################################################################
+#
+# Variational Solvers  ########################
+#
 
 # Define variational solver for the momentum problem
 
 # Ice divide dirichlet bc
-bc = DirichletBC(V.sub(2),thklim,lambda x,on: near(x[0],-L) and on)
+bc = DirichletBC(V.sub(2), thklim, lambda x, on: near(x[0], -L) and on)
 
 if geom in '1sided':
-    mass_problem = NonlinearVariationalProblem(R,U,bcs=[bc],J=J,
+    mass_problem = NonlinearVariationalProblem(R, U, bcs=[bc], J=J,
                                                form_compiler_parameters=ffc_options)
 else:
     # No Dirichlet BCs for symmetric geometry, both sides are ocean
@@ -507,17 +507,17 @@ mass_solver.parameters['snes_solver']['maximum_iterations'] = 100
 mass_solver.parameters['snes_solver']['report'] = False
 
 # Bounds
-l_thick_bound = project(Constant(thklim),Q)
-u_thick_bound = project(Constant(1e4),Q)
+l_thick_bound = project(Constant(thklim), Q)
+u_thick_bound = project(Constant(1e4), Q)
 
-l_v_bound = project(-10000.0,Q)
-u_v_bound = project(10000.0,Q)
+l_v_bound = project(-10000.0, Q)
+u_v_bound = project(10000.0, Q)
 
 l_bound = Function(V)
 u_bound = Function(V)
 
-assigner.assign(l_bound,[l_v_bound]*2+[l_thick_bound])
-assigner.assign(u_bound,[u_v_bound]*2+[u_thick_bound])
+assigner.assign(l_bound, [l_v_bound]*2+[l_thick_bound])
+assigner.assign(u_bound, [u_v_bound]*2+[u_thick_bound])
 
 x = mesh.coordinates().ravel()
 SS = project(S)
@@ -545,20 +545,20 @@ bdotdata = []
 Pdata = []
 
 
-######################################################################
-#######################   SOLUTION   #################################
-######################################################################
+#
+# SOLUTION   #################################
+#
 
 # Time interval
 t = ta
 t_end = te
 dt.assign(dt_float)
 
-assigner.assign(U, [ze,ze,H0])
+assigner.assign(U, [ze, ze, H0])
 
-######################################################################
-#######################   RESTART    #################################
-######################################################################
+#
+# RESTART    #################################
+#
 
 if init_file is not None:
     '''
@@ -570,12 +570,12 @@ if init_file is not None:
     hdf.read(un, 'ubar')
     hdf.read(u2n, 'udef')
     hdf.read(grounded, 'grounded')
-    assigner.assign(U,[un,u2n,H0])
+    assigner.assign(U, [un, u2n, H0])
 
 # Save the time series
 hdf = HDF5File(mesh.mpi_comm(), out_file + '.h5', 'w')
 hdf.write(mesh, 'mesh')
-    
+
 # Loop over time
 i = 0
 while t < t_end:
@@ -602,27 +602,27 @@ while t < t_end:
         mass_solver.solve(l_bound, u_bound)
     # If this breaks, set initial guess to zero and try again
     except:
-        assigner.assign(U,[ze, ze, H0])
+        assigner.assign(U, [ze, ze, H0])
         mass_solver.solve(l_bound, u_bound)
 
     # Set previous time step variables
-    assigner_inv.assign([un,u2n,H0],U)
+    assigner_inv.assign([un, u2n, H0], U)
 
     # Upper glacier surface
     S_u = (B + H) * grounded + H0 * (1 - rho / rho_w) * (1 - grounded)
     # Lower glacier surface
     S_l = B * grounded + H0 * (-rho / rho_w) * (1 - grounded)
-    
+
     us = project(u(0))
     ub = project(u(1))
 
-    
+
     P = None
     if precip_model in 'orog':
         adot, P = get_adot_from_orog_precip(ltop_constants)
     adot_p = project(adot, Q).vector().array()
     bdot_p = project(bdot, Q).vector().array()
-        
+
     # Save values at each time step
     tdata.append(t)
     Hdata.append(H0.vector().array())
@@ -648,13 +648,13 @@ while t < t_end:
     hdf.write(u2n, 'udef', i)
     hdf.write(grounded, 'grounded', i)
     i += 1
-    
+
     print('Year {:2.2f}, Hmax {:2.0f}, adotmax {:2.2f}'.format(t, H0.vector().max(), adot_p.max()))
     t += dt_float
 
 del hdf
 
-# # Save relevant data to pickle
+# Save relevant data to pickle
 # pickle.dump((tdata,Hdata,Sudata,Sldata,Bdata,ubardata,udefdata,usdata,ubdata,grdata,gldata,adotdata,bdotdata), open(out_file + '.p', 'w'))
 
 # Save last time step for restarting purposes
@@ -675,7 +675,7 @@ del hdf
 # Visualization
 
 def animate(i):
-    line_su.set_ydata(Sudata[i])  
+    line_su.set_ydata(Sudata[i])
     line_sl.set_ydata(Sldata[i])
     line_ub.set_ydata(ubdata[i])
     line_us.set_ydata(usdata[i])
@@ -715,4 +715,3 @@ ani = animation.FuncAnimation(fig, animate,
                               interval=5, blit=True)
 ani.save(out_file + '.mp4', fps=24, extra_args=['-vcodec', 'libx264'])
 plt.show()
-

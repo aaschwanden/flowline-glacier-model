@@ -23,8 +23,8 @@ class OrographicPrecipitation(object):
         self.V = V
         self.Orography = Orography
         self.physical_constants = physical_constants
-        self.dx = np.diff(X)[0,0]
-        self.dy = np.diff(Y, axis=0)[0,0]
+        self.dx = np.diff(X)[0, 0]
+        self.dy = np.diff(Y, axis=0)[0, 0]
         self.nx = len(Orography[1,:])
         self.ny = len(Orography)
 
@@ -61,11 +61,11 @@ class OrographicPrecipitation(object):
         # The vertical wave number
         # Eqn. 38
         # m = np.power(np.multiply(np.add(np.power(kx, 2.) , np.power(ky, 2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma, 2.)) , np.subtract(np.power(sigma, 2.), physical_constants['f']**2.))), 0.5)
-        m = np.power(np.multiply(np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), np.power(sigma, 2.)), np.add(np.power(kx, 2.) , np.power(ky, 2.))), 0.5)
+        m = np.power(np.multiply(np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), np.power(sigma, 2.)), np.add(np.power(kx, 2.), np.power(ky, 2.))), 0.5)
         
         m[np.isnan(m)] = 0
-        #m = np.maximum(m,0.00001)
-        m = np.minimum(m,0.01)
+        # m = np.maximum(m,0.00001)
+        m = np.minimum(m, 0.01)
         
         # Numerator in Eqn. 49
         P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft)
@@ -81,12 +81,12 @@ class OrographicPrecipitation(object):
 
         # Converting from wave domain back to space domain
         # Eqn. 6
-        y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle) , np.multiply(cmath.sqrt(-1) , np.sin(P_karot_angle))))
+        y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), spy*1./1000)   # m year-1
         # Truncation
-        P[P<0] = 0
+        P[P < 0] = 0
         return P
 
 
@@ -156,7 +156,7 @@ if __name__ == "__main__":
         ax1.vlines(132, 0, 400,  colors='0.75', linestyles='dashed')
         ax2.vlines(132, 0, 400,  colors='0.75', linestyles='dashed')
         c3 = ax2.contour(OP.P, [.0001], colors='k')
-        ax1.text(.05,0.8, name_str, transform=ax1.transAxes)
+        ax1.text(.05, 0.8, name_str, transform=ax1.transAxes)
         cbar1 = plt.colorbar(c1, ax=ax1)
         cbar2 = plt.colorbar(c2, ax=ax2)
         cbar2.set_label('Precip ({})'.format(ounit))
