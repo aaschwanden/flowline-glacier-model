@@ -322,6 +322,7 @@ if precip_model in 'linear':
 elif precip_model in 'orog':
     adot, P = get_adot_from_orog_precip(ltop_constants)
     bdot = conditional(gt(Hmid, np.abs(bmelt)), bmelt, -Hmid) * (1 - grounded)
+    # bdot = bmelt * (1 - grounded)
 else:
     print('precip model {} not supported'.format(precip_model))
 
@@ -469,6 +470,14 @@ A_g = lhs(R_g)
 b_g = rhs(R_g)
 
 #
+# Erosion  ##########################
+#
+mdot = erosion_constants['K'] * abs(u(1))**erosion_constants['l'] * grounded
+R_e = ((dg - B) / dt -  mdot) * psi * dx
+A_e = lhs(R_e)
+b_e = rhs(R_e)
+
+#
 # I/O Functions  ###########################
 #
 
@@ -589,12 +598,8 @@ while t < t_end:
     if erosion:
         # Only update every update_lag years because
         # this is computationally expensive
-        if (np.mod(t, update_lag) == 0):
-            K = erosion_constants['K']
-            l = erosion_constants['l']
-            mdot =  K * abs(ub)**l  * grounded
-            B -= mdot * (update_lag/dt)
-            print('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3))
+        solve(A_e==b_e, B)
+        print('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3))
 
 
     # Try solving with last solution as initial guess for next solution
