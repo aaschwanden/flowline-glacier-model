@@ -73,7 +73,7 @@ ltop_constants['Smin'] = -400
 ltop_constants['Smax'] = 2500
 ltop_constants['Sela'] = -300
 ltop_constants['Pstar'] = 0.1  # background precip
-ltop_constants['Pscale'] = 5   # Precip scale factor
+ltop_constants['Pscale'] = 2   # Precip scale factor
 
 
 def function_from_array(x, y, Q, mesh):
@@ -221,7 +221,7 @@ class Bed1Sided(Expression):
 # Basal traction Expression
 class Beta2(Expression):
     def eval(self, values, x):
-        values[0] = 5e3
+        values[0] = 2.5e3
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
 class Width(Expression):
@@ -234,7 +234,7 @@ class Width(Expression):
 #
 
 # Define a rectangular mesh
-nx = 1500                                  # Number of cells
+nx = 500                                  # Number of cells
 mesh = IntervalMesh(nx, -L, L)            # Equal cell size
 
 X = SpatialCoordinate(mesh)               # Spatial coordinate
@@ -314,7 +314,7 @@ Smax = 2500.    # above Smax, adot=amax [m]
 Smin =  200.    # below Smin, adot=amin [m]
 Sela = 1000.    # equilibrium line altidue [m]
 
-bmelt = -150.   # sub-shelf melt rate [m year-1]
+bmelt = -50.   # sub-shelf melt rate [m year-1]
 
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
@@ -322,10 +322,8 @@ if precip_model in 'linear':
 elif precip_model in 'orog':
     adot, P = get_adot_from_orog_precip(ltop_constants)
     bdot = conditional(gt(Hmid, np.abs(bmelt)), bmelt, -Hmid) * (1 - grounded)
-    # bdot = bmelt * (1 - grounded)
 else:
     print('precip model {} not supported'.format(precip_model))
-
 
 #
 # Numerics   #########################
@@ -601,7 +599,6 @@ while t < t_end:
         solve(A_e==b_e, B)
         print('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3))
 
-
     # Try solving with last solution as initial guess for next solution
     try:
         mass_solver.solve(l_bound, u_bound)
@@ -614,13 +611,12 @@ while t < t_end:
     assigner_inv.assign([un, u2n, H0], U)
 
     # Upper glacier surface
-    S_u = (B + H) * grounded + H0 * (1 - rho / rho_w) * (1 - grounded)
+    S_u = (B + H) * grounded + Hmid * (1 - rho / rho_w) * (1 - grounded)
     # Lower glacier surface
-    S_l = B * grounded + H0 * (-rho / rho_w) * (1 - grounded)
+    S_l = B * grounded + Hmid * (-rho / rho_w) * (1 - grounded)
 
     us = project(u(0))
     ub = project(u(1))
-
 
     P = None
     if precip_model in 'orog':
