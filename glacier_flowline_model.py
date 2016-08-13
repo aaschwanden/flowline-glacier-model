@@ -17,6 +17,8 @@ from scipy.interpolate import interp1d
 import pickle
 import pylab as plt
 from linear_orog_precip import OrographicPrecipitation
+import ufl
+ufl.algorithms.apply_derivatives.CONDITIONAL_WORKAROUND = True
 set_log_level(30)
 import sys
 sys.setrecursionlimit(10000)
@@ -161,8 +163,8 @@ thklim = 5.0          # Minimum thickness [m]
 g = 9.81              # gravity [m s-1]
 
 zmin = -500.0         # SMB parameters
-amin =  -8.0           # [m year-1]
-amax =  10.0           # [m year-1]
+amin =  -8.0          # [m year-1]
+amax =  10.0          # [m year-1]
 c = 2.0
 
 rho = 900.            # ice density [kg m-3]
@@ -240,7 +242,7 @@ mesh = IntervalMesh(nx, -L, L)            # Equal cell size
 X = SpatialCoordinate(mesh)               # Spatial coordinate
 
 ocean = FacetFunctionSizet(mesh, 0)       # Facet function for boundary conditions
-ds = ds[ocean]
+ds = ds(subdomain_data=ocean)
 
 # Label the left and right boundary as ocean
 for f in facets(mesh):
@@ -601,11 +603,13 @@ while t < t_end:
 
     # Try solving with last solution as initial guess for next solution
     try:
-        mass_solver.solve(l_bound, u_bound)
+        mass_problem.set_bounds(l_bound, u_bound)
+        mass_solver.solve()
     # If this breaks, set initial guess to zero and try again
     except:
         assigner.assign(U, [ze, ze, H0])
-        mass_solver.solve(l_bound, u_bound)
+        mass_problem.set_bounds(l_bound, u_bound)
+        mass_solver.solve()
 
     # Set previous time step variables
     assigner_inv.assign([un, u2n, H0], U)
@@ -714,5 +718,5 @@ ani = animation.FuncAnimation(fig, animate,
                               frames=len(tdata),
                               init_func=init,
                               interval=5, blit=True)
-ani.save(out_file + '.mp4', fps=24, extra_args=['-vcodec', 'libx264'])
+# ani.save(out_file + '.mp4', fps=24, extra_args=['-vcodec', 'libx264'])
 plt.show()

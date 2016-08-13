@@ -9,6 +9,8 @@ Created on Tue Apr  7 18:47:27 2015
 from scipy.fftpack import fft2, fftfreq
 import numpy as np
 import cmath
+from osgeo import gdal, osr
+
 
 class OrographicPrecipitation(object):
 
@@ -84,93 +86,136 @@ class OrographicPrecipitation(object):
         y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
-        P = np.multiply(np.real(y3), spy*1./1000)   # m year-1
+        P = np.multiply(np.real(y3), spy)   # mm year-1
+        # P = np.multiply(np.real(y3), 60*60*6)   # mm / 6hr
         # Truncation
         P[P < 0] = 0
         return P
 
 
+class GdalFile(object):
 
+    '''
+    A class to read a GDAL File
+
+    Parameters
+    ----------
+
+    filename: a valid gdal file
+    '''
+
+    def __init__(self, file_name):
+
+        self.file_name = file_name
+        try:
+            print("\n  opening file %s" % file_name)
+            self.ds = gdal.Open(file_name)
+        except:
+            print("  could not open file %s" % file_name)
+
+        self.RasterArray = self.ds.ReadAsArray()
+        self.projection = self.ds.GetProjection()
+
+        geoT = self.ds.GetGeoTransform()
+        pxwidth = self.ds.RasterXSize
+        pxheight = self.ds.RasterYSize
+        ulx = geoT[0]
+        uly = geoT[3]
+        rezX = geoT[1]
+        rezY = geoT[5]
+        rx = ulx + pxwidth * rezX
+        ly = uly + pxheight * rezY
+        osr_ref = osr.SpatialReference()
+        osr_ref.ImportFromWkt(self.projection)
+        self.proj4 = osr_ref.ExportToProj4()
+
+        self.geoTrans = geoT
+        self.width = np.abs(pxwidth * rezX)
+        self.height = np.abs(pxheight * rezY)
+        self.center_x = ulx + pxwidth * rezX / 2
+        self.center_y = uly + pxheight * rezY / 2
+        self.easting = np.arange(ulx, rx + rezX, rezX)
+        self.northing = np.arange(ly, uly - rezY, -rezY)
+        self.X, self.Y = np.meshgrid(self.easting, self.northing)
+
+
+def array2raster(newRasterfn, geoTrans, proj4, units, array):
+
+    cols = array.shape[1]
+    rows = array.shape[0]
+
+    driver = gdal.GetDriverByName('netCDF')
+    outRaster = driver.Create(newRasterfn, cols, rows, 1, gdal.GDT_Float32)
+    outRaster.SetGeoTransform((geoTrans))
+    outband = outRaster.GetRasterBand(1)
+    outband.SetMetadata('units', units)
+    outband.WriteArray(array)
+    outRasterSRS = osr.SpatialReference()
+    outRasterSRS.ImportFromProj4(proj4)
+    outRaster.SetProjection(outRasterSRS.ExportToWkt())
+    outband.FlushCache()
+    
+        
 if __name__ == "__main__":
     print('Linear Orographic Precipitation Model by Smith & Barstad (2004)')
 
     import pylab as plt
     from matplotlib import cm
     import itertools
-    from cf_units import Unit
-    
-    dx = dy = 750.
-    x, y = np.arange(-100e3, 200e3, dx), np.arange(-150e3, 150e3, dy)
-    nx, nx = len(x), len(y)
-    h_max = 500.
-    x0 = y0 = 0
-    sigma_x = sigma_y = 15e3
+    from argparse import ArgumentParser
 
-    tau_c_values = [1000]
-    tau_f_values = [1000]
-    Cw_values = [0.0]
-    Nm_values = [0.005]
-    Hw_values = [2500]
-    u_values = [-15]
+    parser = ArgumentParser()
+    parser.add_argument('-i', dest='in_file',
+                        help='Gdal-readable DEM', default=None)
+    parser.add_argument('-o', dest='out_file',
+                        help='Output file', default='foo.nc')
 
-    Theta_m = -6.5
-    rho_Sref = 7.4e-3  # kg m-3
-    gamma = -5.8
+    options = parser.parse_args()
+    in_file = options.in_file
+    out_file = options.out_file
 
-    Pdata = []
-    combinations = list(itertools.product(tau_c_values, tau_f_values, Cw_values, Nm_values, Hw_values, u_values))
-    for combination in combinations:
-            
-        tau_c, tau_f, Cw, Nm, Hw, u = combination
-        physical_constants = dict()
-        physical_constants['tau_c'] = tau_c  # conversion time [s]
-        physical_constants['tau_f'] = tau_f  # fallout time [s]
-        physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
-        physical_constants['Nm'] = Nm        # moist stability frequency [s-1]
-        physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [k m-3]
-        physical_constants['Hw'] = Hw    # vapor scale height
-        physical_constants['u'] = u      # x-component of wind vector [m s-1]
-        physical_constants['v'] = 0      # y-component of wind vector [m s-1]
-
+    if in_file is not None:
+        gd = GdalFile(in_file)
+        X = gd.X
+        Y = gd.Y
+        Orography = gd.RasterArray
+    else:
+        dx = dy = 750.
+        x, y = np.arange(-100e3, 200e3, dx), np.arange(-150e3, 150e3, dy)
+        nx, nx = len(x), len(y)
+        h_max = 500.
+        x0 = y0 = 0
+        sigma_x = sigma_y = 15e3
         X, Y = np.meshgrid(x, y)
         Orography = h_max * np.exp(-(((X-x0)**2/(2*sigma_x**2))+((Y-y0)**2/(2*sigma_y**2))))
-        U = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
-        V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
 
-        OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
-        inunit = OP.P_units
-        ounit = 'mm hr-1'
-        iu = Unit(inunit)
-        ou = Unit(ounit)
-        P = iu.convert(OP.P, ou)
-        
-        Pdata.append(P[nx/2+1,:])
-        name_str =  '_'.join(['_'.join([k, str(v)]) for k, v in physical_constants.items()])
-                     
-        fig = plt.figure()
-        ax1 = fig.add_subplot(211)
-        ax2 = fig.add_subplot(212)
-        c1 = ax1.imshow(Orography)
-        c2 = ax2.imshow(P, cmap=cm.RdBu_r, vmin =-2.5, vmax=2.5)
-        ax2.contour(P, np.arange(0.025, 2.025, 0.4), vmin =-2.5, vmax=2.5, colors='k', linestyles='dotted')
-        ax1.vlines(132, 0, 400,  colors='0.75', linestyles='dashed')
-        ax2.vlines(132, 0, 400,  colors='0.75', linestyles='dashed')
-        c3 = ax2.contour(OP.P, [.0001], colors='k')
-        ax1.text(.05, 0.8, name_str, transform=ax1.transAxes)
-        cbar1 = plt.colorbar(c1, ax=ax1)
-        cbar2 = plt.colorbar(c2, ax=ax2)
-        cbar2.set_label('Precip ({})'.format(ounit))
-        outname = name_str + '.pdf'
-        fig.savefig(outname)
-                     
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    for k in range(len(Pdata)):
-        ax.plot(x, Pdata[k])
+    Theta_m = -6.5     # K / km
+    rho_Sref = 7.4e-3  # kg m-3
+    gamma = -5.8       # K / km
+
+    alpha = 45      # direction of the wind 
+    magnitude = 15  # wind speed [m/s]
     
-                     
-    plt.show()
+    physical_constants = dict()
+    physical_constants['tau_c'] = 1000      # conversion time [s]
+    physical_constants['tau_f'] = 1000      # fallout time [s]
+    # physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
+    physical_constants['Nm'] = 0.005        # moist stability frequency [s-1]
+    physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [kg m-3]
+    physical_constants['Hw'] = 2500         # vapor scale height
+    # physical_constants['u'] = np.sin(alpha*2*np.pi/360) * magnitude   # x-component of wind vector [m s-1]
+    # physical_constants['v'] = np.cos(alpha*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
+    physical_constants['u'] = -10.6   # x-component of wind vector [m s-1]
+    physical_constants['v'] = 10.6   # y-component of wind vector [m s-1]
 
+    U = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
+    V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
+
+    OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
+    P = OP.P
+    units = OP.P_units
+
+    array2raster(out_file, gd.geoTrans, gd.proj4, units, P)
 
 
 
