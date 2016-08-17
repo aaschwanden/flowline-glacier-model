@@ -20,6 +20,8 @@ from linear_orog_precip import OrographicPrecipitation
 import ufl
 ufl.algorithms.apply_derivatives.CONDITIONAL_WORKAROUND = True
 set_log_level(30)
+import logging
+logging.getLogger('FFC').setLevel(logging.WARNING)
 import sys
 sys.setrecursionlimit(10000)
 

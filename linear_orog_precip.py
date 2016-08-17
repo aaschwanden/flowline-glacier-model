@@ -31,7 +31,7 @@ class OrographicPrecipitation(object):
         self.ny = len(Orography)
 
         self.P = self._compute_precip()
-        self.P_units = 'm year-1'
+        self.P_units = 'mm hr-1'
         
     def _compute_precip(self):
 
@@ -86,10 +86,11 @@ class OrographicPrecipitation(object):
         y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
-        P = np.multiply(np.real(y3), spy)   # mm year-1
-        # P = np.multiply(np.real(y3), 60*60*6)   # mm / 6hr
+        P = np.multiply(np.real(y3), 3600*6)   # mm hr-1
         # Truncation
         P[P < 0] = 0
+        # Add background precip
+        P +=  physical_constants['P0']
         return P
 
 
@@ -140,6 +141,13 @@ class GdalFile(object):
 
 
 def array2raster(newRasterfn, geoTrans, proj4, units, array):
+    '''
+    Function to export geo-coded raster
+
+    Parameters
+    ----------
+
+    '''
 
     cols = array.shape[1]
     rows = array.shape[0]
@@ -169,11 +177,32 @@ if __name__ == "__main__":
                         help='Gdal-readable DEM', default=None)
     parser.add_argument('-o', dest='out_file',
                         help='Output file', default='foo.nc')
-
+    parser.add_argument('--wind_direction', dest='direction', type=float,
+                        help='Direction from which the wind is coming.', default=225.)
+    parser.add_argument('--wind_magnitude', dest='magnitude', type=float,
+                        help='Magnitude of wind velocity [m/s].', default=15.)
+    parser.add_argument('--tau_c', dest='tau_c', type=float,
+                        help='conversion time [s].', default=1000.)
+    parser.add_argument('--tau_f', dest='tau_f', type=float,
+                        help='fallout time [s].', default=1000.)
+    parser.add_argument('--moist_stability', dest='Nm', type=float,
+                        help='moist stability frequency [s-1].', default=0.0032)
+    parser.add_argument('--vapor_scale_height', dest='Hw', type=float,
+                        help='Water vapor scale height [m].', default=2500)
+    parser.add_argument('--background_precip', dest='P0', type=float,
+                        help='Background precipitation rate [m/s].', default=0.)
+    
     options = parser.parse_args()
     in_file = options.in_file
     out_file = options.out_file
-
+    direction = options.direction
+    magnitude = options.magnitude
+    tau_c = options.tau_c
+    tau_f = options.tau_f
+    Nm = options.Nm
+    Hw = options.Hw
+    P0 = options.P0
+    
     if in_file is not None:
         gd = GdalFile(in_file)
         X = gd.X
@@ -193,20 +222,16 @@ if __name__ == "__main__":
     rho_Sref = 7.4e-3  # kg m-3
     gamma = -5.8       # K / km
 
-    alpha = 45      # direction of the wind 
-    magnitude = 15  # wind speed [m/s]
     
     physical_constants = dict()
-    physical_constants['tau_c'] = 1000      # conversion time [s]
-    physical_constants['tau_f'] = 1000      # fallout time [s]
-    # physical_constants['f'] = 2 * 7.2921e-5 * np.sin(60 * np.pi / 180)
-    physical_constants['Nm'] = 0.005        # moist stability frequency [s-1]
+    physical_constants['tau_c'] = tau_c      # conversion time [s]
+    physical_constants['tau_f'] = tau_f      # fallout time [s]
+    physical_constants['Nm'] = Nm       # moist stability frequency [s-1]
     physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [kg m-3]
-    physical_constants['Hw'] = 2500         # vapor scale height
-    # physical_constants['u'] = np.sin(alpha*2*np.pi/360) * magnitude   # x-component of wind vector [m s-1]
-    # physical_constants['v'] = np.cos(alpha*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
-    physical_constants['u'] = -10.6   # x-component of wind vector [m s-1]
-    physical_constants['v'] = 10.6   # y-component of wind vector [m s-1]
+    physical_constants['Hw'] = Hw         # vapor scale height
+    physical_constants['u'] = np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
+    physical_constants['v'] = -np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
+    physical_constants['P0'] = P0   # background precip [m s-1]
 
     U = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
     V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
