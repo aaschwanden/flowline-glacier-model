@@ -18,7 +18,7 @@ class OrographicPrecipitation(object):
 
     """
 
-    def __init__(self, X, Y, U, V, Orography, physical_constants):
+    def __init__(self, X, Y, U, V, Orography, physical_constants, ounits=None):
         self.X = X
         self.Y = Y
         self.U = U
@@ -30,10 +30,13 @@ class OrographicPrecipitation(object):
         self.nx = len(Orography[1,:])
         self.ny = len(Orography)
 
-        self.P = self._compute_precip()
-        self.P_units = 'mm hr-1'
+        self.P = self._compute_precip(ounits)
+        if ounits is not None:
+            self.P_units = ounits
+        else:
+            self.P_units = 'mm hr-1'
         
-    def _compute_precip(self):
+    def _compute_precip(self, ounits):
 
         physical_constants = self.physical_constants
         Orography = self.Orography
@@ -86,11 +89,19 @@ class OrographicPrecipitation(object):
         y2 = np.multiply(P_karot_amp,  np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
         spy = 31556925.9747
-        P = np.multiply(np.real(y3), 3600*6)   # mm hr-1
+        P = np.multiply(np.real(y3), 3600)   # mm hr-1
         # Truncation
         P[P < 0] = 0
         # Add background precip
         P +=  physical_constants['P0']
+        if physical_constants['Pscale']:
+            P *= physical_constants['Pscale']
+
+        if ounits is not None:
+            import cf_units
+            in_units = cf_units.Unit('mm hr-1')
+            out_units = cf_units.Unit(ounits)
+            P = in_units.convert(P, out_units)
         return P
 
 

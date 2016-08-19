@@ -69,14 +69,14 @@ ltop_constants['tau_f'] = 500  # fallout time [s]
 ltop_constants['Nm'] = 0.001       # 0.005 # moist stability frequency [s-1]
 ltop_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
 ltop_constants['Hw'] = 1000    # vapor scale height
-ltop_constants['u'] = -3       # x-component of wind vector [m s-1]
+ltop_constants['u'] = -5       # x-component of wind vector [m s-1]
 ltop_constants['v'] = 0        # y-component of wind vector [m s-1]
 ltop_constants['amin'] = -6.
 ltop_constants['amax'] = 10.
 ltop_constants['Smin'] = -400
 ltop_constants['Smax'] = 2500
 ltop_constants['Sela'] = -300
-ltop_constants['Pstar'] = 0.1  # background precip
+ltop_constants['P0'] = 0.1  # background precip
 ltop_constants['Pscale'] = 2   # Precip scale factor
 
 
@@ -86,7 +86,7 @@ def function_from_array(x, y, Q, mesh):
     '''
     dim = Q.dim()
     N = mesh.geometry().dim()
-    mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
+    mesh_coor = Q.tabulate_dof_coordinates().reshape(dim, N)
     mesh_x = mesh_coor[:, 0]
     fx_dofs = Q.dofmap().dofs()
     f_interp = interp1d(x, y)
@@ -104,7 +104,7 @@ def array_from_function(f, Q, mesh):
 
     dim = Q.dim()
     N = mesh.geometry().dim()
-    mesh_coor = Q.dofmap().tabulate_all_coordinates(mesh).reshape(dim, N)
+    mesh_coor = Q.tabulate_dof_coordinates().reshape(dim, N)
     mesh_x = mesh_coor[:, 0]
     mesh_y = f.vector().array()
 
@@ -122,7 +122,7 @@ def get_adot_from_orog_precip(ltop_constants):
     Smax = ltop_constants['Smax']
     Sela = ltop_constants['Sela']
     Pscale = ltop_constants['Pscale']
-    Pstar = ltop_constants['Pstar']
+    P0 = ltop_constants['P0']
 
     x_a, y_a = array_from_function(project(S, Q), Q, mesh)
 
@@ -131,10 +131,10 @@ def get_adot_from_orog_precip(ltop_constants):
 
     UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['u'])
     VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['v'])
-    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, ltop_constants)
+    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, ltop_constants, ounits='m year-1')
 
     P = OP.P
-    P = P[1,:] * Pscale + Pstar
+    P = P[1,:] 
 
     smb_S =  function_from_array(x_a, P, Q, mesh)
 
