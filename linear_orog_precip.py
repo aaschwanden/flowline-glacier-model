@@ -64,13 +64,16 @@ class OrographicPrecipitation(object):
         sigma = np.add(np.multiply(kx, U), np.multiply(ky, V))
 
         # The vertical wave number
-        # Eqn. 38
-        # m = np.power(np.multiply(np.add(np.power(kx, 2.) , np.power(ky, 2.)) , np.divide(np.subtract(physical_constants['Nm']**2., np.power(sigma, 2.)) , np.subtract(np.power(sigma, 2.), physical_constants['f']**2.))), 0.5)
-        m = np.power(np.multiply(np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), np.power(sigma, 2.)), np.add(np.power(kx, 2.), np.power(ky, 2.))), 0.5)
-        
-        m[np.isnan(m)] = 0
-        # m = np.maximum(m,0.00001)
-        m = np.minimum(m, 0.01)
+        # Eqn. 12
+        m_denom = np.power(sigma, 2.) - physical_constants['f']**2
+        m_reg = 1e-18
+        m_denom[np.abs(m_denom)<m_reg] = m_reg
+        m1 = np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), m_denom)
+        m2 = np.add(np.power(kx, 2.), np.power(ky, 2.))
+        m_sqr = np.multiply(m1, m2)
+        m = np.zeros_like(m_sqr)
+        m[m_sqr>0] = np.sqrt(m_sqr[m_sqr>0])
+        m[m_sqr<0] = np.sqrt(-m_sqr[m_sqr<0])
         
         # Numerator in Eqn. 49
         P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft)
@@ -94,7 +97,7 @@ class OrographicPrecipitation(object):
         P[P < 0] = 0
         # Add background precip
         P +=  physical_constants['P0']
-        if physical_constants['Pscale']:
+        if physical_constants['Pscale'] is not None:
             P *= physical_constants['Pscale']
 
         if ounits is not None:
@@ -188,16 +191,18 @@ if __name__ == "__main__":
                         help='Gdal-readable DEM', default=None)
     parser.add_argument('-o', dest='out_file',
                         help='Output file', default='foo.nc')
+    parser.add_argument('--latitude', dest='lat', type=float,
+                        help='Latitude to compute Coriolis term.', default=45.)
     parser.add_argument('--wind_direction', dest='direction', type=float,
-                        help='Direction from which the wind is coming.', default=225.)
+                        help='Direction from which the wind is coming.', default=249.1)
     parser.add_argument('--wind_magnitude', dest='magnitude', type=float,
-                        help='Magnitude of wind velocity [m/s].', default=15.)
+                        help='Magnitude of wind velocity [m/s].', default=22.1)
     parser.add_argument('--tau_c', dest='tau_c', type=float,
-                        help='conversion time [s].', default=1000.)
+                        help='conversion time [s].', default=933.)
     parser.add_argument('--tau_f', dest='tau_f', type=float,
-                        help='fallout time [s].', default=1000.)
+                        help='fallout time [s].', default=933.)
     parser.add_argument('--moist_stability', dest='Nm', type=float,
-                        help='moist stability frequency [s-1].', default=0.0032)
+                        help='moist stability frequency [s-1].', default=0.0024)
     parser.add_argument('--vapor_scale_height', dest='Hw', type=float,
                         help='Water vapor scale height [m].', default=2500)
     parser.add_argument('--background_precip', dest='P0', type=float,
@@ -207,13 +212,14 @@ if __name__ == "__main__":
     in_file = options.in_file
     out_file = options.out_file
     direction = options.direction
+    lat = options.lat
     magnitude = options.magnitude
     tau_c = options.tau_c
     tau_f = options.tau_f
     Nm = options.Nm
     Hw = options.Hw
     P0 = options.P0
-    
+
     if in_file is not None:
         gd = GdalFile(in_file)
         X = gd.X
@@ -222,7 +228,6 @@ if __name__ == "__main__":
     else:
         dx = dy = 750.
         x, y = np.arange(-100e3, 200e3, dx), np.arange(-150e3, 150e3, dy)
-        nx, nx = len(x), len(y)
         h_max = 500.
         x0 = y0 = 0
         sigma_x = sigma_y = 15e3
@@ -233,16 +238,18 @@ if __name__ == "__main__":
     rho_Sref = 7.4e-3  # kg m-3
     gamma = -5.8       # K / km
 
-    
     physical_constants = dict()
     physical_constants['tau_c'] = tau_c      # conversion time [s]
     physical_constants['tau_f'] = tau_f      # fallout time [s]
+    physical_constants['f'] =  2* 7.2921e-5*np.sin(lat*np.pi/180) # Coriolis force
     physical_constants['Nm'] = Nm       # moist stability frequency [s-1]
     physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [kg m-3]
+    # physical_constants['Cw'] = 1 # uplift sensitivity factor [kg m-3]
     physical_constants['Hw'] = Hw         # vapor scale height
     physical_constants['u'] = np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
     physical_constants['v'] = -np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
     physical_constants['P0'] = P0   # background precip [m s-1]
+    physical_constants['Pscale'] = None   # scale factor
 
     U = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['u'])
     V = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), physical_constants['v'])
@@ -251,7 +258,8 @@ if __name__ == "__main__":
     P = OP.P
     units = OP.P_units
 
-    array2raster(out_file, gd.geoTrans, gd.proj4, units, P)
+    if in_file is not None:
+        array2raster(out_file, gd.geoTrans, gd.proj4, units, P)
 
 
 
