@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Apr  7 18:47:27 2015
-
-@author: leif
-"""
-
 import logging
 from scipy.fftpack import fft2, fftfreq
 import numpy as np
@@ -12,8 +5,25 @@ import cmath
 from osgeo import gdal, osr
 
 # create logger
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ltop')
 logger.setLevel(logging.DEBUG)
+
+# create file handler which logs even debug messages
+fh = logging.FileHandler('ltop.log')
+fh.setLevel(logging.DEBUG)
+# create console handler with a higher log level
+ch = logging.StreamHandler()
+ch.setLevel(logging.ERROR)
+# create formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# add formatter to ch and fh
+ch.setFormatter(formatter)
+fh.setFormatter(formatter)
+
+# add ch to logger
+logger.addHandler(ch)
+logger.addHandler(fh)
 
 class OrographicPrecipitation(object):
 
@@ -21,7 +31,7 @@ class OrographicPrecipitation(object):
 
     """
 
-    def __init__(self, X, Y, U, V, Orography, physical_constants, ounits=None):
+    def __init__(self, X, Y, U, V, Orography, physical_constants, truncate=True, ounits=None):
         self.X = X
         self.Y = Y
         self.U = U
@@ -32,6 +42,7 @@ class OrographicPrecipitation(object):
         self.dy = np.diff(Y, axis=0)[0, 0]
         self.nx = len(Orography[1, :])
         self.ny = len(Orography)
+        self.truncate = truncate
 
         self.P = self._compute_precip(ounits)
         if ounits is not None:
@@ -70,8 +81,8 @@ class OrographicPrecipitation(object):
         # Eqn. 12
         m_denom = np.power(sigma, 2.) - physical_constants['f']**2
         m_reg = 1e-18
-        m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) >= 0))] = m_reg
-        m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) < 0))] = -m_reg
+        # m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) >= 0))] = m_reg
+        # m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) < 0))] = -m_reg
         # m_denom[np.abs(m_denom) > m_reg] = -m_reg
 
         m1 = np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), m_denom)
@@ -79,20 +90,15 @@ class OrographicPrecipitation(object):
         m_sqr = np.multiply(m1, m2)
         m = np.zeros_like(m_sqr)
         m[m_sqr > 0] = np.sqrt(m_sqr[m_sqr > 0])
-        m[m_sqr < 0] = np.sqrt(-m_sqr[m_sqr < 0])
-        m[sigma == 0] = np.sqrt(m_sqr[sigma == 0]) * np.sign(sigma[sigma == 0])
-        # m = np.maximum(m,0.0001)
-        # m = np.minimum(m,0.01)
-        # m[:, 0:15] = 0
-        # m[:, -14:-1] = 0
         
         # Numerator in Eqn. 49
         P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft)
-        P_karot_denom_Hw = np.subtract(np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)), 1)
-        P_karot_denom_tauc = np.add(np.multiply(np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)), 1)
-        P_karot_denom_tauf = np.add(np.multiply(np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)), 1)
+        P_karot_denom_Hw = np.subtract(1, np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)))
+        P_karot_denom_tauc = np.add(1, np.multiply(np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)))
+        P_karot_denom_tauf = np.add(1, np.multiply(np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)))
         # Denominator in Eqn. 49
         P_karot_denom = np.multiply(P_karot_denom_Hw, np.multiply(P_karot_denom_tauc, P_karot_denom_tauf))
+        # P_karot_denom = 1
         P_karot = np.divide(P_karot_num, P_karot_denom)
 
         P_karot_amp = np.absolute(P_karot)  # get the amplitude
@@ -100,21 +106,25 @@ class OrographicPrecipitation(object):
 
         # Converting from wave domain back to space domain
         # Eqn. 6
-        # y2 = np.multiply(P_karot_amp, np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
-        # y3 = np.fft.ifft2(y2)
-        y3 = np.fft.ifft2(P_karot)
+        y2 = np.multiply(P_karot_amp, np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
+        y3 = np.fft.ifft2(y2)
+        # y3 = np.fft.ifft2(P_karot)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), 3600)   # mm hr-1
-        # Truncation
-        P[P < 0] = 0
         # Add background precip
         P += physical_constants['P0']
-        if physical_constants['Pscale'] is not None:
-            P *= physical_constants['Pscale']
+        # Truncation
+        truncate = self.truncate
+        if truncate is True:
+            P[P < 0] = 0
 
-
-        self.m = m
-        self.P_karot = P_karot
+        if logger.level >= logging.DEBUG:
+            self.Orography_fft = Orography_fft
+            self.sigma = sigma
+            self.m = m
+            self.P_karot = P_karot
+            self.P_karo_denom = P_karot_denom
+        
         if ounits is not None:
             import cf_units
             in_units = cf_units.Unit('mm hr-1')
@@ -206,12 +216,12 @@ if __name__ == "__main__":
                         help='Gdal-readable DEM', default=None)
     parser.add_argument('-o', dest='out_file',
                         help='Output file', default='foo.nc')
+    parser.add_argument('--background_precip', dest='P0', type=float,
+                        help='Background precipitation rate [m/s].', default=0.)
+    parser.add_argument('--no_trunc', dest='truncate', action='store_false',
+                        help='Do not truncate precipitation.', default=True)
     parser.add_argument('--latitude', dest='lat', type=float,
-                        help='Latitude to compute Coriolis term.', default=0.)
-    parser.add_argument('--wind_direction', dest='direction', type=float,
-                        help='Direction from which the wind is coming.', default=270)
-    parser.add_argument('--wind_magnitude', dest='magnitude', type=float,
-                        help='Magnitude of wind velocity [m/s].', default=15)
+                        help='Latitude to compute Coriolis term.', default=45.)
     parser.add_argument('--tau_c', dest='tau_c', type=float,
                         help='conversion time [s].', default=1000)
     parser.add_argument('--tau_f', dest='tau_f', type=float,
@@ -220,9 +230,13 @@ if __name__ == "__main__":
                         help='moist stability frequency [s-1].', default=0.005)
     parser.add_argument('--vapor_scale_height', dest='Hw', type=float,
                         help='Water vapor scale height [m].', default=2500)
-    parser.add_argument('--background_precip', dest='P0', type=float,
-                        help='Background precipitation rate [m/s].', default=0.)
+    parser.add_argument('--wind_direction', dest='direction', type=float,
+                        help='Direction from which the wind is coming.', default=270)
+    parser.add_argument('--wind_magnitude', dest='magnitude', type=float,
+                        help='Magnitude of wind velocity [m/s].', default=15)
 
+
+    logger.info('Parsing options.')
     options = parser.parse_args()
     in_file = options.in_file
     out_file = options.out_file
@@ -231,20 +245,25 @@ if __name__ == "__main__":
     magnitude = options.magnitude
     tau_c = options.tau_c
     tau_f = options.tau_f
+    truncate = options.truncate
     Nm = options.Nm
     Hw = options.Hw
     P0 = options.P0
+    logger.info('Parsing options. Done.')
 
+    
     if in_file is not None:
         gd = GdalFile(in_file)
         X = gd.X
         Y = gd.Y
         Orography = gd.RasterArray
     else:
+        # Reproduce Fig 4c in SB2004
         dx = dy = 750.
         x, y = np.arange(-100e3, 200e3, dx), np.arange(-150e3, 150e3, dy)
         h_max = 500.
-        x0 = y0 = 0
+        x0 = -25e3
+        y0 = 0
         sigma_x = sigma_y = 15e3
         X, Y = np.meshgrid(x, y)
         Orography = h_max * np.exp(-(((X-x0)**2/(2*sigma_x**2))+((Y-y0)**2/(2*sigma_y**2))))
@@ -259,17 +278,16 @@ if __name__ == "__main__":
     physical_constants['f'] = 2 * 7.2921e-5 * np.sin(lat * np.pi / 180) # Coriolis force
     physical_constants['Nm'] = Nm   # moist stability frequency [s-1]
     physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [kg m-3]
-    #physical_constants['Cw'] = 0.02 # uplift sensitivity factor [kg m-3]
     physical_constants['Hw'] = Hw         # vapor scale height
-    physical_constants['u'] = np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
-    physical_constants['v'] = -np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
+    physical_constants['u'] = -np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
+    physical_constants['v'] = np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
     physical_constants['P0'] = P0   # background precip [m s-1]
     physical_constants['Pscale'] = None   # scale factor
 
     U = np.multiply(np.ones((len(Orography), len(Orography[1, :])), dtype=float), physical_constants['u'])
     V = np.multiply(np.ones((len(Orography), len(Orography[1, :])), dtype=float), physical_constants['v'])
 
-    OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants)
+    OP = OrographicPrecipitation(X, Y, U, V, Orography, physical_constants, truncate=truncate)
     P = OP.P
     units = OP.P_units
 
