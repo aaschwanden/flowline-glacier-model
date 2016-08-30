@@ -5,17 +5,17 @@ import cmath
 from osgeo import gdal, osr
 
 # create logger
-logger = logging.getLogger('ltop')
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # create file handler which logs even debug messages
-fh = logging.FileHandler('ltop.log')
+fh = logging.handlers.RotatingFileHandler('ltop.log')
 fh.setLevel(logging.DEBUG)
 # create console handler with a higher log level
 ch = logging.StreamHandler()
 ch.setLevel(logging.ERROR)
 # create formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s')
 
 # add formatter to ch and fh
 ch.setFormatter(formatter)
@@ -32,6 +32,8 @@ class OrographicPrecipitation(object):
     """
 
     def __init__(self, X, Y, U, V, Orography, physical_constants, truncate=True, ounits=None):
+        self.logger = logger or logging.getLogger(__name__, logger=None)
+        self.logger.info('Initializing instance of OrographicPrecipitation')
         self.X = X
         self.Y = Y
         self.U = U
@@ -54,6 +56,7 @@ class OrographicPrecipitation(object):
 
         physical_constants = self.physical_constants
         Orography = self.Orography
+        logger.info('Fourier transform orography')
         Orography_fft = np.fft.fft2(Orography)
         dx = self.dx
         dy = self.dy
@@ -71,31 +74,36 @@ class OrographicPrecipitation(object):
         kx_line = np.divide(np.multiply(2.0 * np.pi, x_n_value), x_len)
         ky_line = np.divide(np.multiply(2.0 * np.pi, y_n_value), y_len)[np.newaxis].T
 
+        logger.info('Calculate wave numbers')
         kx = np.tile(kx_line, (ny, 1))
         ky = np.tile(ky_line, (1, nx))
 
         # Intrinsic frequency sigma = U*k + V*l
+        logger.info('Calculate intrinsic frequency sigma')
         sigma = np.add(np.multiply(kx, U), np.multiply(ky, V))
 
         # The vertical wave number
         # Eqn. 12
-        m_denom = np.power(sigma, 2.) - physical_constants['f']**2
+        # m_denom = np.power(sigma, 2.) - physical_constants['f']**2
+        m_denom = np.power(sigma, 2.) 
         m_reg = 1e-18
-        # m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) >= 0))] = m_reg
+        m_denom[(np.abs(np.real(m_denom)) < m_reg)] = m_reg
         # m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) < 0))] = -m_reg
-        # m_denom[np.abs(m_denom) > m_reg] = -m_reg
 
         m1 = np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), m_denom)
         m2 = np.add(np.power(kx, 2.), np.power(ky, 2.))
         m_sqr = np.multiply(m1, m2)
         m = np.zeros_like(m_sqr)
+        print np.min(m_sqr), np.max(m_sqr)
         m[m_sqr > 0] = np.sqrt(m_sqr[m_sqr > 0])
+        m[m_sqr < 0] = np.sqrt(-m_sqr[m_sqr < 0])
+        print np.min(m), np.max(m)
         
         # Numerator in Eqn. 49
-        P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft)
-        P_karot_denom_Hw = np.subtract(1, np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)))
-        P_karot_denom_tauc = np.add(1, np.multiply(np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)))
-        P_karot_denom_tauf = np.add(1, np.multiply(np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)))
+        P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft, dtype=complex)
+        P_karot_denom_Hw = np.subtract(1, np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)), dtype=complex)
+        P_karot_denom_tauc = np.add(1, np.multiply(np.multiply(sigma, physical_constants['tau_c']), cmath.sqrt(-1)), dtype=complex)
+        P_karot_denom_tauf = np.add(1, np.multiply(np.multiply(sigma, physical_constants['tau_f']), cmath.sqrt(-1)), dtype=complex)
         # Denominator in Eqn. 49
         P_karot_denom = np.multiply(P_karot_denom_Hw, np.multiply(P_karot_denom_tauc, P_karot_denom_tauf))
         # P_karot_denom = 1
@@ -108,7 +116,7 @@ class OrographicPrecipitation(object):
         # Eqn. 6
         y2 = np.multiply(P_karot_amp, np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
         y3 = np.fft.ifft2(y2)
-        # y3 = np.fft.ifft2(P_karot)
+        y3 = np.fft.ifft2(P_karot)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), 3600)   # mm hr-1
         # Add background precip
@@ -121,9 +129,14 @@ class OrographicPrecipitation(object):
         if logger.level >= logging.DEBUG:
             self.Orography_fft = Orography_fft
             self.sigma = sigma
+            self.m_denom = m_denom
+            self.m_sqr = m_sqr
             self.m = m
             self.P_karot = P_karot
-            self.P_karo_denom = P_karot_denom
+            self.P_karot_denom = P_karot_denom
+            self.P_karot_denom = P_karot_denom_Hw
+            self.P_karot_denom_tauc = P_karot_denom_tauc
+            self.P_karot_denom_tauf = P_karot_denom_tauf
         
         if ounits is not None:
             import cf_units
@@ -145,7 +158,7 @@ class GdalFile(object):
     '''
 
     def __init__(self, file_name):
-
+        logger.info('Initializing instance of GdalFile')
         self.file_name = file_name
         try:
             print("\n  opening file %s" % file_name)
@@ -155,8 +168,10 @@ class GdalFile(object):
 
         self.RasterArray = self.ds.ReadAsArray()
         self.projection = self.ds.GetProjection()
+        logger.info('Found projection {}'.format(self.projection))
 
         geoT = self.ds.GetGeoTransform()
+        logger.info('GeoTransform is {}'.format(geoT))
         pxwidth = self.ds.RasterXSize
         pxheight = self.ds.RasterYSize
         ulx = geoT[0]
@@ -279,10 +294,11 @@ if __name__ == "__main__":
     physical_constants['Nm'] = Nm   # moist stability frequency [s-1]
     physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [kg m-3]
     physical_constants['Hw'] = Hw         # vapor scale height
-    physical_constants['u'] = -np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
+    physical_constants['u'] = np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
     physical_constants['v'] = np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
+    # physical_constants['u'] = -15    # x-component of wind vector [m s-1]
+    # physical_constants['v'] = 0   # y-component of wind vector [m s-1]
     physical_constants['P0'] = P0   # background precip [m s-1]
-    physical_constants['Pscale'] = None   # scale factor
 
     U = np.multiply(np.ones((len(Orography), len(Orography[1, :])), dtype=float), physical_constants['u'])
     V = np.multiply(np.ones((len(Orography), len(Orography[1, :])), dtype=float), physical_constants['v'])
@@ -298,8 +314,9 @@ if __name__ == "__main__":
         ax = fig.add_subplot(111)
         c = ax.pcolormesh(X, Y, P)
         plt.colorbar(c)
-        ax.contour(X, Y, P, np.arange(0.025, 2.425, 0.4), colors='1.')
-        ax.contour(X, Y, Orography)
+        ax.contour(X, Y, Orography, np.arange(0,600, 100), colors='0.')
+        cs = ax.contour(X, Y, P, np.arange(0.025, 2.425, 0.4), colors='1.')
+        plt.clabel(cs, inline=1, fontsize=10)
         ax.set_xlim(-100e3, 200e3)
         ax.set_ylim(-150e3, 150e3)
         plt.show()
