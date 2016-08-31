@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 from scipy.fftpack import fft2, fftfreq
 import numpy as np
 import cmath
@@ -85,7 +86,7 @@ class OrographicPrecipitation(object):
         # The vertical wave number
         # Eqn. 12
         # m_denom = np.power(sigma, 2.) - physical_constants['f']**2
-        m_denom = np.power(sigma, 2.) 
+        m_denom = np.power(sigma, 2.)
         m_reg = 1e-18
         m_denom[(np.abs(np.real(m_denom)) < m_reg)] = m_reg
         # m_denom[np.logical_and((np.abs(np.real(m_denom)) < m_reg), (np.abs(np.real(m_denom)) < 0))] = -m_reg
@@ -94,11 +95,9 @@ class OrographicPrecipitation(object):
         m2 = np.add(np.power(kx, 2.), np.power(ky, 2.))
         m_sqr = np.multiply(m1, m2)
         m = np.zeros_like(m_sqr)
-        print np.min(m_sqr), np.max(m_sqr)
         m[m_sqr > 0] = np.sqrt(m_sqr[m_sqr > 0])
         m[m_sqr < 0] = np.sqrt(-m_sqr[m_sqr < 0])
-        print np.min(m), np.max(m)
-        
+
         # Numerator in Eqn. 49
         P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft, dtype=complex)
         P_karot_denom_Hw = np.subtract(1, np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)), dtype=complex)
@@ -114,8 +113,8 @@ class OrographicPrecipitation(object):
 
         # Converting from wave domain back to space domain
         # Eqn. 6
-        y2 = np.multiply(P_karot_amp, np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
-        y3 = np.fft.ifft2(y2)
+        # y2 = np.multiply(P_karot_amp, np.add(np.cos(P_karot_angle), np.multiply(cmath.sqrt(-1), np.sin(P_karot_angle))))
+        # y3 = np.fft.ifft2(y2)
         y3 = np.fft.ifft2(P_karot)
         spy = 31556925.9747
         P = np.multiply(np.real(y3), 3600)   # mm hr-1
@@ -125,7 +124,8 @@ class OrographicPrecipitation(object):
         truncate = self.truncate
         if truncate is True:
             P[P < 0] = 0
-
+        P_scale = physical_constants['P_scale']
+        P *= P_scale 
         if logger.level >= logging.DEBUG:
             self.Orography_fft = Orography_fft
             self.sigma = sigma
@@ -137,7 +137,7 @@ class OrographicPrecipitation(object):
             self.P_karot_denom = P_karot_denom_Hw
             self.P_karot_denom_tauc = P_karot_denom_tauc
             self.P_karot_denom_tauf = P_karot_denom_tauf
-        
+
         if ounits is not None:
             import cf_units
             in_units = cf_units.Unit('mm hr-1')
@@ -203,6 +203,7 @@ def array2raster(newRasterfn, geoTrans, proj4, units, array):
 
     '''
 
+    logger.info('Saving {} as netcdf file'.format(newRasterfn))
     cols = array.shape[1]
     rows = array.shape[0]
 
@@ -215,6 +216,7 @@ def array2raster(newRasterfn, geoTrans, proj4, units, array):
     outRasterSRS = osr.SpatialReference()
     outRasterSRS.ImportFromProj4(proj4)
     outRaster.SetProjection(outRasterSRS.ExportToWkt())
+    logger.info('Write {} to disk'.format(newRasterfn))
     outband.FlushCache()
 
 
@@ -232,7 +234,9 @@ if __name__ == "__main__":
     parser.add_argument('-o', dest='out_file',
                         help='Output file', default='foo.nc')
     parser.add_argument('--background_precip', dest='P0', type=float,
-                        help='Background precipitation rate [m/s].', default=0.)
+                        help='Background precipitation rate [mm hr-1].', default=0.)
+    parser.add_argument('--precip_scale_factor', dest='P_scale', type=float,
+                        help='Precipitation scale factor.', default=1.)
     parser.add_argument('--no_trunc', dest='truncate', action='store_false',
                         help='Do not truncate precipitation.', default=True)
     parser.add_argument('--latitude', dest='lat', type=float,
@@ -264,6 +268,7 @@ if __name__ == "__main__":
     Nm = options.Nm
     Hw = options.Hw
     P0 = options.P0
+    P_scale = options.P_scale
     logger.info('Parsing options. Done.')
 
     
@@ -294,12 +299,14 @@ if __name__ == "__main__":
     physical_constants['Nm'] = Nm   # moist stability frequency [s-1]
     physical_constants['Cw'] = rho_Sref * Theta_m / gamma # uplift sensitivity factor [kg m-3]
     physical_constants['Hw'] = Hw         # vapor scale height
-    physical_constants['u'] = np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
-    physical_constants['v'] = np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
+    physical_constants['u'] = -np.sin(direction*2*np.pi/360) * magnitude    # x-component of wind vector [m s-1]
+    physical_constants['v'] = -np.cos(direction*2*np.pi/360) * magnitude   # y-component of wind vector [m s-1]
     # physical_constants['u'] = -15    # x-component of wind vector [m s-1]
     # physical_constants['v'] = 0   # y-component of wind vector [m s-1]
-    physical_constants['P0'] = P0   # background precip [m s-1]
-
+    physical_constants['P0'] = P0   # background precip [mm hr-1]
+    physical_constants['P_scale'] = P_scale   # precip scale factor [1]
+    logger.debug('Physical constants: {}'.format(physical_constants))
+    
     U = np.multiply(np.ones((len(Orography), len(Orography[1, :])), dtype=float), physical_constants['u'])
     V = np.multiply(np.ones((len(Orography), len(Orography[1, :])), dtype=float), physical_constants['v'])
 
@@ -310,11 +317,13 @@ if __name__ == "__main__":
     if in_file is not None:
         array2raster(out_file, gd.geoTrans, gd.proj4, units, P)
     else:
+        geoTrans = [0., OP.dx, 0., 0., 0., -OP.dy]
+        array2raster(out_file, geoTrans, '', units, P)
         fig = plt.figure()
         ax = fig.add_subplot(111)
         c = ax.pcolormesh(X, Y, P)
         plt.colorbar(c)
-        ax.contour(X, Y, Orography, np.arange(0,600, 100), colors='0.')
+        ax.contour(X, Y, Orography, np.arange(0, 600, 100), colors='0.')
         cs = ax.contour(X, Y, P, np.arange(0.025, 2.425, 0.4), colors='1.')
         plt.clabel(cs, inline=1, fontsize=10)
         ax.set_xlim(-100e3, 200e3)
