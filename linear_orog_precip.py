@@ -82,7 +82,11 @@ class OrographicPrecipitation(object):
         # Intrinsic frequency sigma = U*k + V*l
         logger.info('Calculate intrinsic frequency sigma')
         sigma = np.add(np.multiply(kx, U), np.multiply(ky, V))
-
+        eps = 1e-18
+        sigma_sqr_reg = sigma ** 2
+        sigma_sqr_reg[np.logical_and(np.fabs(sigma_sqr_reg) < eps, np.fabs(sigma_sqr_reg >= 0))] = eps
+        sigma_sqr_reg[np.logical_and(np.fabs(sigma_sqr_reg) < eps, np.fabs(sigma_sqr_reg < 0))] = -eps
+        
         # The vertical wave number
         # Eqn. 12
         # m_denom = np.power(sigma, 2.) - physical_constants['f']**2
@@ -94,10 +98,9 @@ class OrographicPrecipitation(object):
         m1 = np.divide(np.subtract(physical_constants['Nm']**2, np.power(sigma, 2.)), m_denom)
         m2 = np.add(np.power(kx, 2.), np.power(ky, 2.))
         m_sqr = np.multiply(m1, m2)
-        m = np.zeros_like(m_sqr)
-        m[m_sqr > 0] = np.sqrt(m_sqr[m_sqr > 0])
-        m[m_sqr < 0] = np.sqrt(-m_sqr[m_sqr < 0])
-
+        m = np.sqrt(-1 * m_sqr)
+        m[np.logical_and(m_sqr >= 0, sigma == 0)] = np.sqrt(m_sqr[np.logical_and(m_sqr >= 0, sigma == 0)])
+        m[np.logical_and(m_sqr >= 0, sigma != 0)] = np.sqrt(m_sqr[np.logical_and(m_sqr >= 0, sigma != 0)]) * np.sign(sigma[np.logical_and(m_sqr >= 0, sigma != 0)])
         # Numerator in Eqn. 49
         P_karot_num = np.multiply(np.multiply(np.multiply(physical_constants['Cw'], cmath.sqrt(-1)), sigma), Orography_fft, dtype=complex)
         P_karot_denom_Hw = np.subtract(1, np.multiply(np.multiply(physical_constants['Hw'], m), cmath.sqrt(-1)), dtype=complex)
