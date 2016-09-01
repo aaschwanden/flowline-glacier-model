@@ -24,6 +24,11 @@ precip = D2linear(Orography, u0, v0, tau, T0, Nm)
 
 import pylab as plt
 
-plt.contourf(precip)
-plt.colorbar()
+fig = plt.figure()
+ax = fig.add_subplot(111)
+c = ax.imshow(precip)
+plt.colorbar(c)
+ax.contour(Orography, np.arange(0, 600, 100), colors='0.')
+cs = ax.contour(precip, np.arange(0.025, 2.425, 0.4), colors='1.')
+plt.clabel(cs, inline=1, fontsize=10)
 plt.show()
