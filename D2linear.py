@@ -12,7 +12,7 @@ def regularize(x):
     else:
         return x
 
-
+@profile
 def D2linear(topo, u0, v0, tau, T0, Nm):
     ny, nx = topo.shape
 

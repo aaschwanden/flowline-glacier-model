@@ -62,22 +62,24 @@ erosion_constants = dict()
 erosion_constants['K'] = 2.7e-7
 erosion_constants['l'] = 2.
 
-
+lat = 45
 ltop_constants = dict()
-ltop_constants['tau_c'] = 500  # conversion time [s]
-ltop_constants['tau_f'] = 500  # fallout time [s]
-ltop_constants['Nm'] = 0.001       # 0.005 # moist stability frequency [s-1]
-ltop_constants['Cw'] = 0.001   # uplift sensitivity factor [k m-3]
-ltop_constants['Hw'] = 1000    # vapor scale height
-ltop_constants['u'] = -5       # x-component of wind vector [m s-1]
-ltop_constants['v'] = 0        # y-component of wind vector [m s-1]
+ltop_constants['tau_c'] = 1000    # conversion time [s]
+ltop_constants['tau_f'] = 1000    # fallout time [s]
+ltop_constants['Nm'] = 0.005      # 0.005 # moist stability frequency [s-1]
+ltop_constants['Cw'] = 0.0083     # uplift sensitivity factor [k m-3]
+ltop_constants['Hw'] = 3000       # vapor scale height
+ltop_constants['u'] = 7           # x-component of wind vector [m s-1]
+ltop_constants['v'] = 0           # y-component of wind vector [m s-1]
 ltop_constants['amin'] = -6.
 ltop_constants['amax'] = 10.
 ltop_constants['Smin'] = -400
 ltop_constants['Smax'] = 2500
 ltop_constants['Sela'] = -300
-ltop_constants['P0'] = 0.1  # background precip
-ltop_constants['Pscale'] = 2   # Precip scale factor
+ltop_constants['P0'] = 0.0  # background precip
+ltop_constants['P_scale'] = 15   # Precip scale factor
+ltop_constants['f'] = 2 * 7.2921e-5 * \
+        np.sin(lat * np.pi / 180)  # Coriolis force
 
 
 def function_from_array(x, y, Q, mesh):
@@ -121,17 +123,14 @@ def get_adot_from_orog_precip(ltop_constants):
     Smin = ltop_constants['Smin']
     Smax = ltop_constants['Smax']
     Sela = ltop_constants['Sela']
-    Pscale = ltop_constants['Pscale']
+    Pscale = ltop_constants['P_scale']
     P0 = ltop_constants['P0']
 
     x_a, y_a = array_from_function(project(S, Q), Q, mesh)
 
     XX, YY = np.meshgrid(x_a, range(3))
     Orography = np.tile(y_a, (3, 1))
-
-    UU = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['u'])
-    VV = np.multiply(np.ones( (len(Orography), len(Orography[1,:])), dtype = float), ltop_constants['v'])
-    OP = OrographicPrecipitation(XX, YY, UU, VV, Orography, ltop_constants, ounits='m year-1')
+    OP = OrographicPrecipitation(XX, YY, Orography, ltop_constants, truncate=True, ounits='m year-1', tomass=False)
 
     P = OP.P
     P = P[1,:] 
