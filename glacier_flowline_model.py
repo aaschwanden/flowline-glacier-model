@@ -62,14 +62,14 @@ erosion_constants = dict()
 erosion_constants['K'] = 2.7e-7
 erosion_constants['l'] = 2.
 
-lat = 45
 ltop_constants = dict()
-ltop_constants['tau_c'] = 1000    # conversion time [s]
-ltop_constants['tau_f'] = 1000    # fallout time [s]
+ltop_constants['lat'] = 0.         # Latitude
+ltop_constants['tau_c'] = 750     # conversion time [s]
+ltop_constants['tau_f'] = 750     # fallout time [s]
 ltop_constants['Nm'] = 0.005      # 0.005 # moist stability frequency [s-1]
 ltop_constants['Cw'] = 0.0083     # uplift sensitivity factor [k m-3]
 ltop_constants['Hw'] = 3000       # vapor scale height
-ltop_constants['u'] = 7           # x-component of wind vector [m s-1]
+ltop_constants['u'] = 5           # x-component of wind vector [m s-1]
 ltop_constants['v'] = 0           # y-component of wind vector [m s-1]
 ltop_constants['amin'] = -6.
 ltop_constants['amax'] = 10.
@@ -77,9 +77,9 @@ ltop_constants['Smin'] = -400
 ltop_constants['Smax'] = 2500
 ltop_constants['Sela'] = -300
 ltop_constants['P0'] = 0.0  # background precip
-ltop_constants['P_scale'] = 15   # Precip scale factor
+ltop_constants['P_scale'] = 12   # Precip scale factor
 ltop_constants['f'] = 2 * 7.2921e-5 * \
-        np.sin(lat * np.pi / 180)  # Coriolis force
+        np.sin(ltop_constants['lat'] * np.pi / 180)  # Coriolis force
 
 
 def function_from_array(x, y, Q, mesh):
@@ -190,8 +190,8 @@ amp = 100.0           # Geometry oscillation parameters
 zmax = 2500.  # [m]
 x0 = 0
 sigma_x = 15e3
-sigma_x1 = 5e3
-sigma_x2 = 15e3
+sigma_x1 = 15e3
+sigma_x2 = 5e3
 
 # Correlation matrix for random topography
 N = len(x)
@@ -219,7 +219,7 @@ class BedAsym(Expression):
 
 class Bed1Sided(Expression):
     def eval(self, values, x):
-        values[0] = (zmax - zmin)*exp(-(x[0]+L)/(L*0.3)) + zmin - amp*(sin(4*pi*x[0]/L)) + iii(x[0])
+        values[0] = (zmax - zmin) * exp(-(x[0] + L)/(L * 0.3)) + zmin - amp *(sin(4 * pi * x[0] / L)) + iii(x[0])
 
 # Basal traction Expression
 class Beta2(Expression):
@@ -249,11 +249,11 @@ ds = ds(subdomain_data=ocean)
 for f in facets(mesh):
     if near(f.midpoint().x(), L):
         ocean[f] = 1
-        if near(f.midpoint().x(), -L):
-            if geom in '1sided':
-                ocean[f] = 2
-            else:
-                ocean[f] = 1
+    if near(f.midpoint().x(), -L):
+        if geom in '1sided':
+            ocean[f] = 2
+        else:
+            ocean[f] = 1
 
 
 # Facet normals
@@ -264,7 +264,7 @@ normal = FacetNormal(mesh)
 #
 
 Q = FunctionSpace(mesh, "CG", 1)
-V = MixedFunctionSpace([Q]*3)           # ubar,udef,H space
+V = MixedFunctionSpace([Q]*3)           # ubar, udef, H space
 
 ze = Function(Q)                        # Zero constant function
 
@@ -294,14 +294,14 @@ Phi = TestFunction(V)                  # Velocity test function
 u, u2, H = split(U)
 phi, phi1, xsi = split(Phi)
 
-un = Function(Q)                       # Temp velocities
+un = Function(Q)                               # Temporary velocities
 u2n = Function(Q)
 
 H0 = Function(Q)
-H0.vector()[:] = rho_w/rho * thklim + 1e-3 # Initial thickness
+H0.vector()[:] = rho_w / rho * thklim + 1e-3  # Initial thickness
 
-theta = Constant(0.5)                  # Crank-Nicholson
-Hmid = theta*H + (1-theta)*H0
+theta = Constant(0.5)                         # Crank-Nicholson
+Hmid = theta * H + (1 - theta) * H0
 
 # Ice upper surface
 S = B + Hmid
@@ -317,7 +317,7 @@ Smax = 2500.    # above Smax, adot=amax [m]
 Smin =  200.    # below Smin, adot=amin [m]
 Sela = 1000.    # equilibrium line altidue [m]
 
-bmelt = -50.   # sub-shelf melt rate [m year-1]
+bmelt = -25.   # sub-shelf melt rate [m year-1]
 
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
@@ -362,10 +362,10 @@ class VerticalIntegrator(object):
 
 # Surface elevation gradients in z for coordinate change Jacobian
 def dsdx(s):
-    return 1./Hmid*(S.dx(0) - s*H.dx(0))
+    return 1. / Hmid * (S.dx(0) - s * H.dx(0))
 
 def dsdz(s):
-    return -1./Hmid
+    return -1./ Hmid
 
 # Ansatz spectral elements (and derivs.): Here using SSA (constant) + SIA ((n+1) order polynomial)
 # Note that this choice of element means that the first term is depth-averaged velocity, and the second term is deformational velocity
@@ -413,16 +413,16 @@ def tau_dx_f(s):
     return rho*g*(1-rho/rho_w)*Hmid*Hmid.dx(0)*phi(s)
 
 # Normal vectors
-normalx = (B.dx(0))/sqrt((B.dx(0))**2 + 1.0)
+normalx = (B.dx(0)) / sqrt((B.dx(0))**2 + 1.0)
 normalz = sqrt(1 - normalx**2)
 
 # Overburden
-P_0 = rho*g*Hmid
+P_0 = rho * g *Hmid
 # Water pressure (ocean only, no basal hydro.)
-P_w = Max(-rho_w*g*B, 1e-16)
+P_w = Max(-rho_w * g *B, 1e-16)
 
-# basal shear stress
-tau_b = beta2*u(1)/(1.-normalx**2)*grounded
+# basal shear stress applied on grounded ice
+tau_b = beta2 * u(1) / (1. - normalx**2) * grounded
 
 # Momentum balance residual (Blatter-Pattyn/O(1)/LMLa)
 R = (- vi.intz(membrane_xx) - vi.intz(shear_xz) - phi(1)*tau_b - vi.intz(tau_dx)*grounded - vi.intz(tau_dx_f)*(1-grounded))*dx
