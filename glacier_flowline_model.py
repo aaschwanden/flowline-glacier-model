@@ -69,7 +69,7 @@ ltop_constants['tau_f'] = 750     # fallout time [s]
 ltop_constants['Nm'] = 0.005      # 0.005 # moist stability frequency [s-1]
 ltop_constants['Cw'] = 0.0083     # uplift sensitivity factor [k m-3]
 ltop_constants['Hw'] = 3000       # vapor scale height
-ltop_constants['u'] = 5           # x-component of wind vector [m s-1]
+ltop_constants['u'] = 7.5           # x-component of wind vector [m s-1]
 ltop_constants['v'] = 0           # y-component of wind vector [m s-1]
 ltop_constants['amin'] = -6.
 ltop_constants['amax'] = 10.
@@ -77,7 +77,7 @@ ltop_constants['Smin'] = -400
 ltop_constants['Smax'] = 2500
 ltop_constants['Sela'] = -300
 ltop_constants['P0'] = 0.0  # background precip
-ltop_constants['P_scale'] = 12   # Precip scale factor
+ltop_constants['P_scale'] = 8   # Precip scale factor
 ltop_constants['f'] = 2 * 7.2921e-5 * \
         np.sin(ltop_constants['lat'] * np.pi / 180)  # Coriolis force
 
@@ -190,8 +190,8 @@ amp = 100.0           # Geometry oscillation parameters
 zmax = 2500.  # [m]
 x0 = 0
 sigma_x = 15e3
-sigma_x1 = 15e3
-sigma_x2 = 5e3
+sigma_x1 = 25e3
+sigma_x2 = 10e3
 
 # Correlation matrix for random topography
 N = len(x)
@@ -317,7 +317,7 @@ Smax = 2500.    # above Smax, adot=amax [m]
 Smin =  200.    # below Smin, adot=amin [m]
 Sela = 1000.    # equilibrium line altidue [m]
 
-bmelt = -25.   # sub-shelf melt rate [m year-1]
+bmelt = -20.   # sub-shelf melt rate [m year-1]
 
 if precip_model in 'linear':
     adot = conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (S - Sela), (amax / (Smax - Sela)) * (S - Sela)) * grounded +  conditional(lt(S, Sela), (-amin / (Sela - Smin)) * (Hmid - Sela), (amax / (Smax - Sela)) * (Hmid * (1 - rho / rho_w) - Sela)) * (1 - grounded)
