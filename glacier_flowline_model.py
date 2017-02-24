@@ -263,8 +263,11 @@ normal = FacetNormal(mesh)
 # FUNCTION SPACES  #####################
 #
 
-Q = FunctionSpace(mesh, "CG", 1)
-V = MixedFunctionSpace([Q]*3)           # ubar, udef, H space
+Ecg = FiniteElement("CG", mesh.ufl_cell(), 1)
+Q = FunctionSpace(mesh, Ecg)
+EV = MixedElement(Ecg, Ecg, Ecg)
+V = FunctionSpace(mesh, EV)
+# V = MixedFunctionSpace([Q]*3)           # ubar, udef, H space
 
 ze = Function(Q)                        # Zero constant function
 
@@ -272,15 +275,15 @@ grounded = Function(Q)                 # Boolean grounded function
 grounded.vector()[:] = 1
 
 if geom in 'sym':
-    B = interpolate(BedSym(), Q)         # Bed elevation function
+    B = interpolate(BedSym(degree=2), Q)         # Bed elevation function
 elif geom in 'asym':
-    B = interpolate(BedAsym(), Q)
+    B = interpolate(BedAsym(degree=2), Q)
 elif geom in '1sided':
-    B = interpolate(Bed1Sided(), Q)
+    B = interpolate(Bed1Sided(degree=2), Q)
 else:
     print('{} not supported'.format(geom))
 
-beta2 = interpolate(Beta2(), Q)          # Basal traction function
+beta2 = interpolate(Beta2(degree=1), Q)          # Basal traction function
 
 #
 # FUNCTIONS  ###########################
@@ -442,7 +445,7 @@ h = CellSize(mesh)
 D = h*abs(U[0])/2.
 
 # Width for including convergence/divergence
-width = interpolate(Width(), Q)
+width = interpolate(Width(degree=2), Q)
 area = Hmid*width
 
 # Add the SUPG-stabilized continuity equation to residual
@@ -594,6 +597,8 @@ while t < t_end:
     # Update grounding line position
     solve(A_g == b_g, grounded)
     grounded.vector()[0] = 1
+    grounded.vector()[:] = np.maximum(grounded.vector().array(), 0)
+    grounded.vector()[:] = np.minimum(grounded.vector().array(), 1)
 
     # Hard bed erosion
     if erosion:
