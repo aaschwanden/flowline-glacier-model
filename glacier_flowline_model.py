@@ -82,37 +82,6 @@ ltop_constants['f'] = 2 * 7.2921e-5 * \
         np.sin(ltop_constants['lat'] * np.pi / 180)  # Coriolis force
 
 
-def function_from_array(x, y, Q, mesh):
-    '''
-    Returns a function in FunctionSpace Q and mesh interpolated from array y
-    '''
-    dim = Q.dim()
-    N = mesh.geometry().dim()
-    mesh_coor = Q.tabulate_dof_coordinates().reshape(dim, N)
-    mesh_x = mesh_coor[:, 0]
-    fx_dofs = Q.dofmap().dofs()
-    f_interp = interp1d(x, y)
-    mesh_values = f_interp(mesh_x)
-    my_f  = Function(Q)
-    my_f.vector()[fx_dofs] = mesh_values
-
-    return my_f
-
-
-def array_from_function(f, Q, mesh):
-    '''
-    Returns a function in FunctionSpace Q and mesh interpolated from array y
-    '''
-
-    dim = Q.dim()
-    N = mesh.geometry().dim()
-    mesh_coor = Q.tabulate_dof_coordinates().reshape(dim, N)
-    mesh_x = mesh_coor[:, 0]
-    mesh_y = f.vector().array()
-
-    return mesh_x, mesh_y
-
-
 def get_adot_from_orog_precip(ltop_constants):
     '''
     Calculates SMB for Linear Orographic Precipitation Model
@@ -126,7 +95,9 @@ def get_adot_from_orog_precip(ltop_constants):
     Pscale = ltop_constants['P_scale']
     P0 = ltop_constants['P0']
 
-    x_a, y_a = array_from_function(project(S, Q), Q, mesh)
+    x_a = project(X[0], Q).vector().array()
+    y_a = project(S, Q).vector().array()
+    # x_a, y_a = array_from_function(project(S, Q), Q, mesh)
 
     XX, YY = np.meshgrid(x_a, range(3))
     Orography = np.tile(y_a, (3, 1))
@@ -134,8 +105,10 @@ def get_adot_from_orog_precip(ltop_constants):
 
     P = OP.P
     P = P[1,:] 
-
-    smb_S =  function_from_array(x_a, P, Q, mesh)
+    # smb_S =  function_from_array(x_a, P, Q, mesh)
+    print np.max(P)
+    smb_S =  Function(Q)
+    smb_S.vector()[:] = np.ascontiguousarray(P)
 
     return smb_S, P
 
@@ -682,7 +655,8 @@ hdf.write(grounded, 'grounded')
 
 del hdf
 
-
+print x.shape
+print Bdata[0].shape
 # Visualization
 
 def animate(i):
