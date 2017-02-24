@@ -106,7 +106,6 @@ def get_adot_from_orog_precip(ltop_constants):
     P = OP.P
     P = P[1,:] 
     # smb_S =  function_from_array(x_a, P, Q, mesh)
-    print np.max(P)
     smb_S =  Function(Q)
     smb_S.vector()[:] = np.ascontiguousarray(P)
 
@@ -462,7 +461,6 @@ b_e = rhs(R_e)
 assigner_inv = FunctionAssigner([Q, Q, Q], V)
 assigner     = FunctionAssigner(V, [Q, Q, Q])
 
-
 #
 # Variational Solvers  ########################
 #
@@ -655,8 +653,6 @@ hdf.write(grounded, 'grounded')
 
 del hdf
 
-print x.shape
-print Bdata[0].shape
 # Visualization
 
 def animate(i):
