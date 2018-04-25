@@ -95,8 +95,8 @@ def get_adot_from_orog_precip(ltop_constants):
     Pscale = ltop_constants['P_scale']
     P0 = ltop_constants['P0']
 
-    x_a = project(X[0], Q).vector().array()
-    y_a = project(S, Q).vector().array()
+    x_a = project(X[0], Q).vector().get_local()
+    y_a = project(S, Q).vector().get_local()
     # x_a, y_a = array_from_function(project(S, Q), Q, mesh)
 
     XX, YY = np.meshgrid(x_a, range(3))
@@ -116,13 +116,10 @@ def get_adot_from_orog_precip(ltop_constants):
 #
 
 parameters['form_compiler']['cpp_optimize'] = True
-parameters['form_compiler']['representation'] = 'quadrature'
+parameters['form_compiler']['representation'] = 'uflacs'
 parameters['allow_extrapolation'] = True
 
-ffc_options = {"optimize": True, \
-               "eliminate_zeros": True, \
-               "precompute_basis_const": True, \
-               "precompute_ip_const": True}
+ffc_options = {"optimize": True}
 
 
 #
@@ -214,7 +211,7 @@ mesh = IntervalMesh(nx, -L, L)            # Equal cell size
 
 X = SpatialCoordinate(mesh)               # Spatial coordinate
 
-ocean = FacetFunctionSizet(mesh, 0)       # Facet function for boundary conditions
+ocean = MeshFunctionSizet(mesh, 0)       # Mesh function for boundary conditions
 ds = ds(subdomain_data=ocean)
 
 # Label the left and right boundary as ocean
@@ -413,7 +410,7 @@ R += F_ocean_x
 #
 
 # SUPG parameters
-h = CellSize(mesh)
+h = CellDiameter(mesh)
 D = h*abs(U[0])/2.
 
 # Width for including convergence/divergence
@@ -508,7 +505,7 @@ SS = project(S)
 us = project(u(0))
 ub = project(u(1))
 
-adot_p = project(adot, Q).vector().array()
+adot_p = project(adot, Q).vector().get_local()
 
 mass = []
 time = []
@@ -568,8 +565,8 @@ while t < t_end:
     # Update grounding line position
     solve(A_g == b_g, grounded)
     grounded.vector()[0] = 1
-    grounded.vector()[:] = np.maximum(grounded.vector().array(), 0)
-    grounded.vector()[:] = np.minimum(grounded.vector().array(), 1)
+    grounded.vector()[:] = np.maximum(grounded.vector().get_local(), 0)
+    grounded.vector()[:] = np.minimum(grounded.vector().get_local(), 1)
 
     # Hard bed erosion
     if erosion:
@@ -602,21 +599,21 @@ while t < t_end:
     P = None
     if precip_model in 'orog':
         adot, P = get_adot_from_orog_precip(ltop_constants)
-    adot_p = project(adot, Q).vector().array()
-    bdot_p = project(bdot, Q).vector().array()
+    adot_p = project(adot, Q).vector().get_local()
+    bdot_p = project(bdot, Q).vector().get_local()
 
     # Save values at each time step
     tdata.append(t)
-    Hdata.append(H0.vector().array())
-    Sudata.append(project(S_u).vector().array())
-    Sldata.append(project(S_l).vector().array())
-    Bdata.append(project(B).vector().array())
+    Hdata.append(H0.vector().get_local())
+    Sudata.append(project(S_u).vector().get_local())
+    Sldata.append(project(S_l).vector().get_local())
+    Bdata.append(project(B).vector().get_local())
     gldata.append(gl(0))
-    ubardata.append(un.vector().array())
-    udefdata.append(u2n.vector().array())
-    usdata.append(us.vector().array())
-    ubdata.append(ub.vector().array())
-    grdata.append(grounded.vector().array())
+    ubardata.append(un.vector().get_local())
+    udefdata.append(u2n.vector().get_local())
+    usdata.append(us.vector().get_local())
+    ubdata.append(ub.vector().get_local())
+    grdata.append(grounded.vector().get_local())
     adotdata.append(adot_p)
     bdotdata.append(bdot_p)
     Pdata.append(P)
