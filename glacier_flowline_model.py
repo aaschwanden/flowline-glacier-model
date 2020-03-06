@@ -99,7 +99,7 @@ def get_adot_from_orog_precip(ltop_constants):
     y_a = project(S, Q).vector().get_local()
     # x_a, y_a = array_from_function(project(S, Q), Q, mesh)
 
-    XX, YY = np.meshgrid(x_a, range(3))
+    XX, YY = np.meshgrid(x_a, list(range(3)))
     Orography = np.tile(y_a, (3, 1))
     OP = OrographicPrecipitation(XX, YY, Orography, ltop_constants, truncate=True, ounits='m year-1', tomass=False)
 
@@ -250,7 +250,7 @@ elif geom in 'asym':
 elif geom in '1sided':
     B = interpolate(Bed1Sided(degree=2), Q)
 else:
-    print('{} not supported'.format(geom))
+    print(('{} not supported'.format(geom)))
 
 beta2 = interpolate(Beta2(degree=1), Q)          # Basal traction function
 
@@ -298,7 +298,7 @@ elif precip_model in 'orog':
     adot, P = get_adot_from_orog_precip(ltop_constants)
     bdot = conditional(gt(Hmid, np.abs(bmelt)), bmelt, -Hmid) * (1 - grounded)
 else:
-    print('precip model {} not supported'.format(precip_model))
+    print(('precip model {} not supported'.format(precip_model)))
 
 #
 # Numerics   #########################
@@ -573,7 +573,7 @@ while t < t_end:
         # Only update every update_lag years because
         # this is computationally expensive
         solve(A_e==b_e, B)
-        print('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3))
+        print(('Erosion rate {} mm year-1'.format(project(mdot).vector().max()*1e3)))
 
     # Try solving with last solution as initial guess for next solution
     try:
@@ -628,7 +628,7 @@ while t < t_end:
     hdf.write(grounded, 'grounded', i)
     i += 1
 
-    print('Year {:2.2f}, Hmax {:2.0f}, adotmax {:2.2f}'.format(t, H0.vector().max(), adot_p.max()))
+    print(('Year {:2.2f}, Hmax {:2.0f}, adotmax {:2.2f}'.format(t, H0.vector().max(), adot_p.max())))
     t += dt_float
 
 del hdf
