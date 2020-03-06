@@ -1,346 +1,279 @@
-from scipy.fftpack import fft2, fftfreq
 import numpy as np
-import cmath
+
 import logging
+logger = logging.getLogger('LTOP')
 
-logger = logging.getLogger("LTOP")
+np.seterr(divide='ignore', invalid='ignore')
+class LTOP(object):
+    "Linear Theory of Orographic Precipitation (LTOP) model"
 
-np.seterr(divide="ignore", invalid="ignore")
+    tau_c = 1000.0
+    "conversion time [s]"
 
+    tau_f = 1000.0
+    "fallout time [s]"
 
-class OrographicPrecipitation(object):
+    P0 = 0.0
+    'Background precipitation rate [mm hr-1]'
 
-    """
-    Calculates orographic precipitation following Smith & Barstad (2004).
+    P_scale = 1.0
+    'Precipitation scale factor'
 
-    """
+    Nm = 0.005
+    'moist stability frequency [s-1]'
 
-    def __init__(self, X, Y, Orography, physical_constants, truncate=True, ounits=None, tomass=False):
-        self.X = X
-        self.Y = Y
-        self.Orography = Orography
-        self.physical_constants = physical_constants
-        self.dx = np.diff(X)[0, 0]
-        self.dy = np.diff(Y, axis=0)[0, 0]
-        self.nx = len(Orography[1, :])
-        self.ny = len(Orography)
-        self.truncate = truncate
-        self.tomass = tomass
+    Hw = 2500
+    'Water vapor scale height [m]'
 
-        self.P = self._compute_precip(ounits)
-        if ounits is not None:
-            self.P_units = ounits
-        else:
-            self.P_units = "mm hr-1"
+    latitude = 45.0
+    "Latitude used to compute the Coriolis force"
 
-    def _compute_precip(self, ounits):
-        logger.info("Running _compute_precip")
-        physical_constants = self.physical_constants
+    direction = 270.0
+    "Wind direction, 0 is north, 270 is west"
+
+    speed = 15.0
+    "Wind speed"
+
+    f = None
+    "Coriolis force"
+
+    u = None
+    "u component of the wind velocity"
+
+    v = None
+    "v component of the wind velocity"
+
+    Cw = None
+    "Uplift sensitivity factor [kg m-3]"
+
+    Theta_m = -6.5
+    "moist adiabatic lapse rate [K / km]"
+
+    rho_Sref = 7.4e-3
+    "reference density [kg m-3]"
+
+    gamma = -5.8
+    "adiabatic lapse rate [K / km]"
+
+    def __init__(self):
+        self.update()
+
+    def run(self, orography, dx, dy, truncate=True):
+        "Compute orographic precipitation in mm/hour."
+        # make sure derived constants are up to date
+        self.update()
+
         eps = 1e-18
-        pad_max = 200
-        pad = int(np.ceil(((self.nx + self.ny) / 2) / 100)) * 100
-        if pad > pad_max:
-            pad = pad_max
-        logger.debug("Raster shape before padding ({},{})".format(self.nx, self.ny))
-        Orography = np.pad(self.Orography, pad, "constant")
-        nx, ny = Orography.shape
-        logger.debug("Raster shape after padding ({},{})".format(ny, nx))
-        logger.info("Fourier transform orography")
-        Orography_fft = np.fft.fft2(Orography)
-        dx = self.dx
-        dy = self.dy
-        x_n_value = np.fft.fftfreq(ny, (1.0 / ny))
-        y_n_value = np.fft.fftfreq(nx, (1.0 / nx))
 
-        x_len = nx * dx
-        y_len = ny * dy
-        kx_line = np.divide(np.multiply(2.0 * np.pi, x_n_value), x_len)
-        ky_line = np.divide(np.multiply(2.0 * np.pi, y_n_value), y_len)[np.newaxis].T
+        nrows, ncols = orography.shape
 
-        kx = np.tile(kx_line, (nx, 1))
-        ky = np.tile(ky_line, (1, ny))
+        pad = max(nrows, ncols)
+
+        h = np.pad(orography, pad, 'constant')
+        nrows, ncols = h.shape
+
+        h_hat = np.fft.fft2(h)
+
+        x_freq = np.fft.fftfreq(ncols, dx / (2 * np.pi))
+        y_freq = np.fft.fftfreq(nrows, dy / (2 * np.pi))
+
+        kx, ky = np.meshgrid(x_freq, y_freq)
 
         # Intrinsic frequency sigma = U*k + V*l
-        u0 = physical_constants["u"]
-        v0 = physical_constants["v"]
-        logger.info("Calculate sigma")
-        sigma = np.add(np.multiply(kx, u0), np.multiply(ky, v0))
-        sigma_sqr_reg = sigma ** 2
-        m_denom = np.power(sigma, 2.0) - physical_constants["f"] ** 2
+        u0 = self.u
+        v0 = self.v
 
-        sigma_sqr_reg[np.logical_and(np.fabs(sigma_sqr_reg) < eps, np.fabs(sigma_sqr_reg >= 0))] = eps
-        sigma_sqr_reg[np.logical_and(np.fabs(sigma_sqr_reg) < eps, np.fabs(sigma_sqr_reg < 0))] = -eps
+        # $\sigma = U k + V l$, see paragraph after eq 5.
+        sigma = u0 * kx + v0 * ky
 
-        # The vertical wave number
-        # Eqn. 12
+        denominator = sigma**2 - self.f**2
+        denominator[np.logical_and(np.fabs(denominator) < eps, denominator >= 0)] = eps
+        denominator[np.logical_and(np.fabs(denominator) < eps, denominator  < 0)] = -eps
+
+        m_squared = (self.Nm**2 - sigma**2) * (kx**2 + ky**2) / denominator
+
+        m = np.sqrt(np.array(m_squared, dtype=np.complex))
+
         # Regularization
-        m_denom[np.logical_and(np.fabs(m_denom) < eps, np.fabs(m_denom) >= 0)] = eps
-        m_denom[np.logical_and(np.fabs(m_denom) < eps, np.fabs(m_denom) < 0)] = -eps
+        nonzero = np.logical_and(m_squared >= 0, sigma != 0)
+        m[nonzero] *= np.sign(sigma[nonzero])
 
-        m1 = np.divide(np.subtract(physical_constants["Nm"] ** 2, np.power(sigma, 2.0)), m_denom)
-        m2 = np.add(np.power(kx, 2.0), np.power(ky, 2.0))
-        m_sqr = np.multiply(m1, m2)
-        logger.info("Calculating m")
-        m = np.sqrt(-1 * m_sqr)
-        # Regularization
-        m[np.logical_and(m_sqr >= 0, sigma == 0)] = np.sqrt(m_sqr[np.logical_and(m_sqr >= 0, sigma == 0)])
-        m[np.logical_and(m_sqr >= 0, sigma != 0)] = np.sqrt(m_sqr[np.logical_and(m_sqr >= 0, sigma != 0)]) * np.sign(
-            sigma[np.logical_and(m_sqr >= 0, sigma != 0)]
-        )
-        # Numerator in Eqn. 49
-        P_karot_num = np.multiply(
-            np.multiply(np.multiply(physical_constants["Cw"], cmath.sqrt(-1)), sigma), Orography_fft
-        )
-        P_karot_denom_Hw = np.subtract(1, np.multiply(np.multiply(physical_constants["Hw"], m), cmath.sqrt(-1)))
-        P_karot_denom_tauc = np.add(1, np.multiply(np.multiply(sigma, physical_constants["tau_c"]), cmath.sqrt(-1)))
-        P_karot_denom_tauf = np.add(1, np.multiply(np.multiply(sigma, physical_constants["tau_f"]), cmath.sqrt(-1)))
-        # Denominator in Eqn. 49
-        P_karot_denom = np.multiply(P_karot_denom_Hw, np.multiply(P_karot_denom_tauc, P_karot_denom_tauf))
-        P_karot = np.divide(P_karot_num, P_karot_denom)
+        P_hat = h_hat * (self.Cw * 1j * sigma /
+                         ((1 - 1j * m * self.Hw) *
+                          (1 + 1j * sigma * self.tau_c) *
+                          (1 + 1j * sigma * self.tau_f)))
 
-        # Converting from wave domain back to space domain
-        logger.info("Performing inverse Fourier transform")
-        P = np.fft.ifft2(P_karot)
-        spy = 31556925.9747
-        logger.info("De-pad array")
-        P = P[pad:-pad, pad:-pad]
-        P = np.multiply(np.real(P), 3600)  # mm hr-1
-        # Add background precip
-        P0 = physical_constants["P0"]
-        logger.info("Adding background precpipitation {} mm hr-1".format(P0))
-        P += P0
-        # Truncation
-        truncate = self.truncate
-        if truncate is True:
-            logger.info("Truncate precipitation")
-            P[P < 0] = 0
-        P_scale = physical_constants["P_scale"]
-        logger.info("Scale precipitation P = P * {}".format(P_scale))
-        P *= P_scale
+        # Convert from wave domain back to space domain
+        P = np.real(np.fft.ifft2(P_hat))
 
-        if ounits is not None:
-            import cf_units
+        # Remove padding
+        if pad > 0:
+            P = P[pad:-pad, pad:-pad]
 
-            in_units = cf_units.Unit("mm hr-1")
-            out_units = cf_units.Unit(ounits)
-            if self.tomass:
-                water_density = 1000.0
-                logger.info("Converting mm hr-1 to {} using density {}".format(ounits, water_density))
-                in_units *= cf_units.Unit("kg m-3") * water_density
-                P = in_units.convert(P, out_units)
-            else:
-                logger.info("Converting mm hr-1 to {}".format(ounits))
-                P = in_units.convert(P, out_units)
+        # convert to mm hr-1
+        P *= 3600
+
+        # Add background precipitation
+        P += self.P0
+
+        # Truncate
+        if truncate:
+            P[P < 0] = 0.0
+
+        P *= self.P_scale
 
         return P
 
+    def update(self):
+        "Update derived constants"
 
-class ReadRaster(object):
+        self.f = 2 * 7.2921e-5 * np.sin(self.latitude * np.pi / 180.0)
+
+        self.u = -np.sin(self.direction * 2 * np.pi / 360) * self.speed
+        self.v = -np.cos(self.direction * 2 * np.pi / 360) * self.speed
+
+        self.Cw = self.rho_Sref * self.Theta_m / self.gamma
+
+def triangle_ridge_grid(dx=5e4, dy=5e4):
+    "Allocate the grid for the synthetic geometry test."
+
+    x_min, x_max = -100e3, 100e3
+    y_min, y_max = -100e3, 100e3
+
+    Mx = int((x_max - x_min) / dx) + 1
+    My = int((y_max - y_min) / dy) + 1
+
+    x = np.linspace(x_min, x_max, Mx)
+    y = np.linspace(y_min, y_max, My)
+
+    return x, dx, y, dy
+
+def triangle_ridge(x, A=500.0, d=50e3):
+    "Create the 'triangle ridge' topography"
+    return np.maximum(A * (1 - np.fabs(x) / d), 0)
+
+def triangle_ridge_exact(x, u, Cw, tau, A=500.0, d=50e3):
+    """The exact precipitation corresponding to the "triangle ridge" topography."""
+    assert d > 0
+
+    C = Cw * u * A / d
+    Ut = u * tau
+
+    xc = Ut * np.log(2 - np.exp(-d / Ut))
+
+    def P(x):
+        if x < 0 and x >= -d:
+            return C * (1.0 - np.exp(-(x + d) / Ut))
+        elif x >= 0 and x <= xc:
+            return C * (np.exp(-x / Ut) * (2 - np.exp(-d / Ut)) - 1)
+        else:
+            return 0
+
+    try:
+        return 3600 * np.array([P(t) for t in x])
+    except TypeError:
+        return 3600 * P(x)
+
+def max_error(spacing, direction):
+    """Compute the maximum precipitation error compared to the "triangle ridge" exact
+    solution.
+
+    `spacing` : grid spacing, meters
+    `direction` : wind direction, degrees
 
     """
-    A class to read a GDAL File
+    model = LTOP()
+    # Set conversion time to zero (we could set fallout time to zero instead: it does not
+    # matter which one is zero)
+    model.tau_c = 0.0
+    model.Hw = 0.0
+    model.direction = direction
+    model.latitude = 0.0
 
-    Parameters
-    ----------
+    if direction == 90 or direction == 270:
+        # east or west
+        x, dx, y, dy = triangle_ridge_grid(dx=spacing)
+        t = x
 
-    filename: a valid gdal file
-    """
+        h = triangle_ridge(t)
+        orography = np.tile(h, (len(y), 1))
 
-    from osgeo import gdal, osr
+        P = model.run(orography, dx, dy)
+        P = P[len(y) // 2, :]
+    else:
+        # north or south
+        x, dx, y, dy = triangle_ridge_grid(dy=spacing)
+        t = y
 
-    def __init__(self, file_name):
-        self.file_name = file_name
-        try:
-            print(("\n  opening file %s" % file_name))
-            ds = gdal.Open(file_name)
-        except:
-            print(("  could not open file %s" % file_name))
+        h = triangle_ridge(t)
+        orography = np.tile(h, (len(x), 1)).T
 
-        self.RasterArray = ds.ReadAsArray()
-        self.projection = ds.GetProjection()
+        P = model.run(orography, dx, dy)
+        P = P[:, len(x) // 2]
 
-        geoT = ds.GetGeoTransform()
-        pxwidth = ds.RasterXSize
-        pxheight = ds.RasterYSize
-        ulx = geoT[0]
-        uly = geoT[3]
-        rezX = geoT[1]
-        rezY = geoT[5]
-        rx = ulx + pxwidth * rezX
-        ly = uly + pxheight * rezY
-        osr_ref = osr.SpatialReference()
-        osr_ref.ImportFromWkt(self.projection)
-        self.proj4 = osr_ref.ExportToProj4()
+    if direction == 0 or direction == 90:
+        P_exact = triangle_ridge_exact(-t, model.speed, model.Cw, model.tau_f)
+    else:
+        P_exact = triangle_ridge_exact(t,  model.speed, model.Cw, model.tau_f)
 
-        self.geoTrans = geoT
-        self.width = np.abs(pxwidth * rezX)
-        self.height = np.abs(pxheight * rezY)
-        self.center_x = ulx + pxwidth * rezX / 2
-        self.center_y = uly + pxheight * rezY / 2
-        self.easting = np.arange(ulx, rx + rezX, rezX)
-        self.northing = np.arange(ly, uly - rezY, -rezY)
-        self.X, self.Y = np.meshgrid(self.easting, self.northing)
+    return np.max(np.fabs(P - P_exact))
 
+def convergence_rate(dxs, error, direction, plot):
+    """Compute and plot the convergence rate given the resinement path `dxs` and errors in
+    `error`.
 
-def array2raster(newRasterfn, geoTrans, proj4, units, array):
+    Specify wind direction in `direction` (in degrees).
+
+    Set `plot` to True to plot.
 
     """
-    Function to export geo-coded raster
+    errors = [error(dx, direction) for dx in dxs]
 
-    Parameters
-    ----------
+    p = np.polyfit(np.log10(dxs), np.log10(errors), 1)
 
-    """
+    if plot:
+        wind_direction = {0 : "north", 90 : "east", 180 : "south", 270 : "west"}
 
-    from osgeo import gdal, osr
+        plt.figure()
+        plt.title("Precipitation errors (wind direction: {})".format(wind_direction[direction]))
+        log_fit_plot(dxs, p, "polynomial fit (dx^{:1.4})".format(p[0]))
+        log_plot(dxs, errors, 'o', "errors")
+        plt.legend()
+        plt.grid()
+        plt.xlabel("grid spacing (meters)")
+        plt.ylabel("log10(error)")
+        plt.show()
 
-    cols = array.shape[1]
-    rows = array.shape[0]
+    return p[0]
 
-    driver = gdal.GetDriverByName("netCDF")
-    outRaster = driver.Create(newRasterfn, cols, rows, 1, gdal.GDT_Float32)
-    outRaster.SetGeoTransform((geoTrans))
-    outband = outRaster.GetRasterBand(1)
-    outband.SetMetadata("units", units)
-    outband.WriteArray(array)
-    outRasterSRS = osr.SpatialReference()
-    outRasterSRS.ImportFromProj4(proj4)
-    outRaster.SetProjection(outRasterSRS.ExportToWkt())
-    outband.FlushCache()
+def ltop_test(plot=False):
+    "Comparing to the 'triangle ridge' exact solution"
+    dxs = [2000, 1000, 500, 250]
 
+    assert convergence_rate(dxs, max_error,   0, plot) > 1.9
+    assert convergence_rate(dxs, max_error,  90, plot) > 1.9
+    assert convergence_rate(dxs, max_error, 180, plot) > 1.9
+    assert convergence_rate(dxs, max_error, 270, plot) > 1.9
+
+def gaussian_bump(xmin, xmax, ymin, ymax, dx, dy, h_max=500.0,
+                  x0=-25e3, y0=0.0, sigma_x=15e3, sigma_y=15e3):
+    "Create the setup needed to reproduce Fig 4c in SB2004"
+    # Reproduce Fig 4c in SB2004
+    x = np.arange(xmin, xmax, dx)
+    y = np.arange(ymin, ymax, dy)
+    X, Y = np.meshgrid(x, y)
+    Orography = h_max * np.exp(-(((X - x0)**2 / (2 * sigma_x**2)) +
+                                 ((Y - y0)**2 / (2 * sigma_y**2))))
+    return X, Y, Orography
 
 if __name__ == "__main__":
-    print("Linear Theory Orographic Precipitation Model by Smith & Barstad (2004)")
+    import pylab as plt
 
-    import itertools
-    from argparse import ArgumentParser
+    def log_plot(x, y, style, label):
+        plt.plot(np.log10(x), np.log10(y), style, label=label)
+        plt.xticks(np.log10(x), x)
 
-    import logging
-    import logging.handlers
+    def log_fit_plot(x, p, label):
+        plt.plot(np.log10(x), np.polyval(p, np.log10(x)), label=label)
 
-    # create logger
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-
-    # create file handler which logs even debug messages
-    fh = logging.handlers.RotatingFileHandler("ltop.log")
-    fh.setLevel(logging.DEBUG)
-    # create console handler with a higher log level
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.ERROR)
-    # create formatter
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s")
-    # add formatter to ch and fh
-    ch.setFormatter(formatter)
-    fh.setFormatter(formatter)
-
-    # add ch to logger
-    logger.addHandler(ch)
-    logger.addHandler(fh)
-    parser = ArgumentParser()
-    parser.add_argument("-i", dest="in_file", help="Gdal-readable DEM", default=None)
-    parser.add_argument("-o", dest="out_file", help="Output file", default="foo.nc")
-    parser.add_argument("--o_units", dest="ounits", help="Output units. Default: mm hr-1", default="mm hr-1")
-    parser.add_argument(
-        "--water_mass_rate",
-        dest="tomass",
-        action="store_true",
-        help="Use flag if output unit is mass area-2 time-1, use water density. Default: False",
-        default=False,
-    )
-    parser.add_argument(
-        "--background_precip_pre",
-        dest="P0",
-        type=float,
-        help="Background precipitation rate before scaling [mm hr-1].",
-        default=0.0,
-    )
-    parser.add_argument(
-        "--background_precip_post",
-        dest="P1",
-        type=float,
-        help="Background precipitation rate after scaling [mm hr-1].",
-        default=0.0,
-    )
-    parser.add_argument(
-        "--precip_scale_factor", dest="P_scale", type=float, help="Precipitation scale factor.", default=1.0
-    )
-    parser.add_argument(
-        "--no_trunc", dest="truncate", action="store_false", help="Do not truncate precipitation.", default=True
-    )
-    parser.add_argument("--latitude", dest="lat", type=float, help="Latitude to compute Coriolis term.", default=45.0)
-    parser.add_argument("--tau_c", dest="tau_c", type=float, help="conversion time [s].", default=1000)
-    parser.add_argument("--tau_f", dest="tau_f", type=float, help="fallout time [s].", default=1000)
-    parser.add_argument(
-        "--moist_stability", dest="Nm", type=float, help="moist stability frequency [s-1].", default=0.005
-    )
-    parser.add_argument(
-        "--vapor_scale_height", dest="Hw", type=float, help="Water vapor scale height [m].", default=2500
-    )
-    parser.add_argument(
-        "--wind_direction", dest="direction", type=float, help="Direction from which the wind is coming.", default=270
-    )
-    parser.add_argument(
-        "--wind_magnitude", dest="magnitude", type=float, help="Magnitude of wind velocity [m/s].", default=15
-    )
-
-    options = parser.parse_args()
-    in_file = options.in_file
-    out_file = options.out_file
-    direction = options.direction
-    lat = options.lat
-    magnitude = options.magnitude
-    tau_c = options.tau_c
-    tau_f = options.tau_f
-    truncate = options.truncate
-    Nm = options.Nm
-    Hw = options.Hw
-    P0 = options.P0
-    P1 = options.P1
-    P_scale = options.P_scale
-    ounits = options.ounits
-    tomass = options.tomass
-
-    if in_file is not None:
-        gd = ReadRaster(in_file)
-        X = gd.X
-        Y = gd.Y
-        Orography = gd.RasterArray
-    else:
-        # Reproduce Fig 4c in SB2004
-        dx = dy = 750.0
-        x, y = np.arange(-100e3, 200e3, dx), np.arange(-150e3, 150e3, dy)
-        h_max = 500.0
-        x0 = -25e3
-        y0 = 0
-        sigma_x = sigma_y = 15e3
-        X, Y = np.meshgrid(x, y)
-        Orography = h_max * np.exp(-(((X - x0) ** 2 / (2 * sigma_x ** 2)) + ((Y - y0) ** 2 / (2 * sigma_y ** 2))))
-
-    Theta_m = -6.5  # K / km
-    rho_Sref = 7.4e-3  # kg m-3
-    gamma = -5.8  # K / km
-
-    physical_constants = dict()
-    physical_constants["tau_c"] = tau_c  # conversion time [s]
-    physical_constants["tau_f"] = tau_f  # fallout time [s]
-    physical_constants["f"] = 2 * 7.2921e-5 * np.sin(lat * np.pi / 180)  # Coriolis force
-    physical_constants["Nm"] = Nm  # moist stability frequency [s-1]
-    physical_constants["Cw"] = rho_Sref * Theta_m / gamma  # uplift sensitivity factor [kg m-3]
-    physical_constants["Hw"] = Hw  # vapor scale height
-    # x-component of wind vector [m s-1]
-    physical_constants["u"] = -np.sin(direction * 2 * np.pi / 360) * magnitude
-    # y-component of wind vector [m s-1]
-    physical_constants["v"] = np.cos(direction * 2 * np.pi / 360) * magnitude
-    physical_constants["P0"] = P0  # background precip [mm hr-1]
-    physical_constants["P_scale"] = P_scale  # precip scale factor [1]
-
-    OP = OrographicPrecipitation(X, Y, Orography, physical_constants, truncate=truncate, ounits=ounits, tomass=tomass)
-    P = OP.P
-    units = OP.P_units
-
-    if in_file is not None:
-        array2raster(out_file, gd.geoTrans, gd.proj4, units, P)
-    else:
-        geoTrans = [0.0, OP.dx, 0.0, 0.0, 0.0, -OP.dy]
-        array2raster(out_file, geoTrans, "", units, P)
+    ltop_test(plot=True)
