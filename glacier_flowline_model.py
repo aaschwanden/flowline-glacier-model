@@ -171,12 +171,12 @@ z_noise = np.random.multivariate_normal(np.zeros(N), cov)
 iii = interp1d(x, z_noise)
 
 # Bed elevation Expression
-class BedSym(Expression):
+class BedSym(UserExpression):
     def eval(self, values, x):
         values[0] = zmax * exp(-(((x[0] - x0) ** 2 / (2 * sigma_x ** 2)))) + zmin
 
 
-class BedAsym(Expression):
+class BedAsym(UserExpression):
     def eval(self, values, x):
         values[0] = (
             zmax
@@ -189,19 +189,19 @@ class BedAsym(Expression):
         )
 
 
-class Bed1Sided(Expression):
+class Bed1Sided(UserExpression):
     def eval(self, values, x):
         values[0] = (zmax - zmin) * exp(-(x[0] + L) / (L * 0.3)) + zmin - amp * (sin(4 * pi * x[0] / L)) + iii(x[0])
 
 
 # Basal traction Expression
-class Beta2(Expression):
+class Beta2(UserExpression):
     def eval(self, values, x):
         values[0] = 2.5e3
 
 
 # Flowline width Expression - only relevent for continuity: lateral shear not considered
-class Width(Expression):
+class Width(UserExpression):
     def eval(self, values, x):
         values[0] = 1
 
@@ -216,7 +216,7 @@ mesh = IntervalMesh(nx, -L, L)  # Equal cell size
 
 X = SpatialCoordinate(mesh)  # Spatial coordinate
 
-ocean = MeshFunctionSizet(mesh, 0)  # Mesh function for boundary conditions
+ocean = MeshFunction("size_t", mesh, 0)  # Mesh function for boundary conditions
 ds = ds(subdomain_data=ocean)
 
 # Label the left and right boundary as ocean
@@ -416,7 +416,7 @@ normalz = sqrt(1 - normalx ** 2)
 # Overburden
 P_0 = rho * g * Hmid
 # Water pressure (ocean only, no basal hydro.)
-P_w = Max(-rho_w * g * B, 1e-16)
+P_w = ufl.Max(-rho_w * g * B, 1e-16)
 
 # basal shear stress applied on grounded ice
 tau_b = beta2 * u(1) / (1.0 - normalx ** 2) * grounded
@@ -471,7 +471,7 @@ theta_g = 0.9
 dtau = 0.2
 
 # Flotation condition
-ghat = conditional(Or(And(ge(rho * g * H, Max(P_w, 1e-16)), ge(H, 1.5 * rho_w / rho * thklim)), ge(B, 1e-16)), 1, 0)
+ghat = conditional(ufl.Or(ufl.And(ge(rho * g * H, ufl.Max(P_w, 1e-16)), ge(H, 1.5 * rho_w / rho * thklim)), ge(B, 1e-16)), 1, 0)
 
 # Flotation update system
 R_g = psi * (dg - grounded + dtau * (dg * theta_g + grounded * (1 - theta_g) - ghat)) * dx
