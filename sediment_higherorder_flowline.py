@@ -615,7 +615,7 @@ while t < t_end:
         sed_solver.parameters["newton_solver"]["maximum_iterations"] = 10
         sed_solver.parameters["newton_solver"]["report"] = True
         sed_solver.parameters["newton_solver"]["relaxation_parameter"] = 0.7
-        # sed_solver.solve()
+        sed_solver.solve()
 
         # Solve for ice velocity and thickness
         print("solving mass")
