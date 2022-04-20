@@ -462,37 +462,46 @@ b_Qw = df.rhs(R_Qw)
 
 
 delta = df.exp(-h_s / l_s)
+# average water speed is equal to (water flux) / (effective thickness) (Eq 4)
 ubar_w = Qw / h_eff
 
-Bdot = -be * beta2 * N * u(1) ** 2 * delta  # Rate of bedrock erosion
-edot = cc / h_eff * ubar_w**2 * (1 - delta)  # Erosion rate
-ddot = d * Qs / Qw  # Deposition rate
+# Rate of bedrock erosion (Eq 2, RHS)
+Bdot = -be * beta2 * N * u(1) ** 2 * delta
+# Erosion rate (Eq 6)
+edot = cc / h_eff * ubar_w**2 * (1 - delta)
+# Deposition rate (Eq 7)
+ddot = d * Qs / Qw
 
 Qs_avg = 0.5 * (Qs("+") + Qs("-"))
 Qs_jump = Qs("+") * nhat("+") + Qs("-") * nhat("-")
 psiQ_avg = 0.5 * (psi_Q("+") + psi_Q("-"))
 psiQ_jump = psi_Q("+") * nhat("+") + psi_Q("-") * nhat("-")
 
+# diffusivity of sediment due to hill-slope processes
 k_diff = df.Constant(5000)
 
 psih_avg = 0.5 * (psi_h("+") + psi_h("-"))
 psih_jump = psi_h("+") * nhat("+") + psi_h("-") * nhat("-")
 
 Qs_upwind = Qs_avg + 0.5 * Qs_jump
-
-h = df.CellDiameter(mesh)
-dhsdt = (h_s("+") - h_s("-")) / (0.5 * (h("+") + h("-")))
+# Sediment flux (Eq 8)
 R_Qs = (
     (ddot - edot) * psi_Q * df.dx
     + df.dot(Qs_upwind, psiQ_jump) * df.dS
     + Qs * nhat * psi_Q * ds(1)
 )
+# Sediment transport (Eq 5)
+h = df.CellDiameter(mesh)
+dhsdt = (h_s("+") - h_s("-")) / (0.5 * (h("+") + h("-")))
 R_hs = (
     psi_h * ((h_s - h_s0) / dt + rho_r / rho_s * Bdot - ddot + edot) * df.dx
     + df.avg(k_diff) * dhsdt * psih_jump * df.dS
 )
+# Bedrock evolution (Eq 2)
 R_B = psi_B * ((B - B0) / dt - Bdot) * df.dx
+# ??
 R_hsx = psi_h_ * (h_s - h_s_) * df.dx
+# Effective thickness ?
 R_heff = psi_eff * (h_eff - softplus(h_0, Base - Bhat, alpha=10.0)) * df.dx
 
 # Weak form of sediment dynamics, solves for bedrock elevation, fluvial sed. flux,
