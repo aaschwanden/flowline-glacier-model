@@ -9,11 +9,26 @@
 ####################################################################################
 ####################################################################################
 
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import matplotlib
 import dolfin as df
 import ufl
 import matplotlib.pyplot as plt
 import numpy as np
+
+parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+parser.description = "Variational Inference of PDD parameters."
+parser.add_argument(
+    "-g",
+    "--geometry",
+    dest="geometry",
+    choices=["1sided", "sym", "asym"],
+    help="Geometry",
+    default="1sided",
+)
+options = parser.parse_args()
+geom = options.geometry
+
 
 ##########################################################
 ###############        CONSTANTS       ###################
@@ -82,8 +97,6 @@ k = df.Constant(0.7)
 
 dt_float = 0.1  # Time step
 dt = df.Constant(dt_float)
-
-geom = "sym"
 
 if geom == "1sided":
     L = 45000.0  # Characteristic domain length
@@ -251,6 +264,8 @@ h_eff0.vector()[:] = h_0(0)
 # Scalar test functions for uncoupled water flux
 psi = df.TestFunction(Q_dg)
 dQ = df.TrialFunction(Q_dg)
+ww = df.TestFunction(Q_cg)
+
 
 # Functions for computing the grounded indicator
 grounded = df.Function(Q_dg)
@@ -453,11 +468,11 @@ dQ_upwind = dQ_avg + 0.5 * dQ_jump
 
 Qw = df.Function(Q_dg)
 
-W_transport = (
+W_div = (
     -me * psi * df.dx + df.dot(dQ_upwind, psi_jump) * df.dS + dQ * nhat * psi * ds(1)
 )
 
-R_Qw = W_transport
+R_Qw = W_div
 A_Qw = df.lhs(R_Qw)
 b_Qw = df.rhs(R_Qw)
 
