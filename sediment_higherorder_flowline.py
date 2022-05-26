@@ -16,6 +16,11 @@ import ufl
 import matplotlib.pyplot as plt
 import numpy as np
 
+df.parameters['form_compiler']['optimize'] = True
+df.parameters['form_compiler']['cpp_optimize'] = True
+df.parameters['form_compiler']['quadrature_degree'] = 2
+df.parameters['allow_extrapolation'] = True
+
 parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
 parser.description = "Variational Inference of PDD parameters."
 parser.add_argument(
@@ -153,6 +158,16 @@ class BedAsym(df.UserExpression):
             + zmin
         )
 
+class FlowDir1Sided(df.UserExpression):
+    def eval(self,values,x):
+        values[0] = 1.0
+
+class FlowDirSym(df.UserExpression):
+    def eval(self,values,x):
+        if x[0]>0:
+            values[0] = 1.0
+        else:
+            values[0] = -1.0
 
 # Basal traction
 class Beta2(df.UserExpression):
@@ -242,16 +257,21 @@ H0_.vector()[:] = 25
 
 if geom in "sym":
     Bed = BedSym
+    FlowDir = FlowDirSym
 elif geom in "asym":
     Bed = BedAsym
+    FlowDir = FlowDirSym
 elif geom in "1sided":
     Bed = Bed1Sided
+    FlowDir = FlowDir1Sided
 else:
     print(("{} not supported".format(geom)))
 
 
 B0 = df.interpolate(Bed(), Q_cg)
 B0_ = df.interpolate(Bed(), Q_dg)
+
+flow_dir = df.interpolate(FlowDir(), Q_dg)
 
 Qs0 = df.Function(Q_dg)
 
@@ -435,11 +455,18 @@ uvec = df.as_vector(
 unorm = (df.dot(uvec, uvec)) ** 0.5
 uH = df.avg(ubar) * H_avg + 0.5 * df.avg(unorm) * H_jump
 
-I_transport = (
-    ((H - H0) / dt - (adot + bdot)) * xsi * df.dx
-    + df.dot(uH, xsi_jump) * df.dS
-    + ubar * H * nhat * xsi * ds(1)
-)
+if geom == '1sided':
+    I_transport = (
+        ((H - H0) / dt - (adot + bdot)) * xsi * df.dx
+        + df.dot(uH, xsi_jump) * df.dS
+        + ubar * H * nhat * xsi * ds(1)
+    )
+else:
+    I_transport = (
+        ((H - H0) / dt - (adot + bdot)) * xsi * df.dx
+        + df.dot(uH, xsi_jump) * df.dS
+        + ubar * H * nhat * xsi * ds#(1)
+    )
 
 # This projects the DG0 thickness onto a CG1 space, so that we can take derivatives
 I_project = (H - H_) * w * df.dx
@@ -464,13 +491,18 @@ dQ_jump = dQ("+") * nhat("+") + dQ("-") * nhat("-")
 psi_avg = 0.5 * (psi("+") + psi("-"))
 psi_jump = psi("+") * nhat("+") + psi("-") * nhat("-")
 
-dQ_upwind = dQ_avg + 0.5 * dQ_jump
+dQ_upwind = df.avg(flow_dir)*dQ_avg + 0.5 * dQ_jump
 
 Qw = df.Function(Q_dg)
 
-W_div = (
-    -me * psi * df.dx + df.dot(dQ_upwind, psi_jump) * df.dS + dQ * nhat * psi * ds(1)
-)
+if geom=='1sided':
+    W_div = (
+    -me * psi * df.dx + df.dot(dQ_upwind, psi_jump) * df.dS + dQ * flow_dir * nhat * psi * ds(1)
+    )
+else:
+    W_div = (
+    -me * psi * df.dx + df.dot(dQ_upwind, psi_jump) * df.dS + dQ * flow_dir * nhat * psi * ds#(1)
+    )
 
 R_Qw = W_div
 A_Qw = df.lhs(R_Qw)
@@ -503,13 +535,20 @@ k_diff = df.Constant(5000)
 psih_avg = 0.5 * (psi_h("+") + psi_h("-"))
 psih_jump = psi_h("+") * nhat("+") + psi_h("-") * nhat("-")
 
-Qs_upwind = Qs_avg + 0.5 * Qs_jump
+Qs_upwind = df.avg(flow_dir)*Qs_avg + 0.5 * Qs_jump
 # Sediment flux (Eq 8)
-R_Qs = (
-    (ddot - edot) * psi_Q * df.dx
-    + df.dot(Qs_upwind, psiQ_jump) * df.dS
-    + Qs * nhat * psi_Q * ds(1)
-)
+if geom == '1sided':
+    R_Qs = (
+        (ddot - edot) * psi_Q * df.dx
+        + df.dot(Qs_upwind, psiQ_jump) * df.dS
+        + Qs * flow_dir * nhat * psi_Q * ds(1)
+    )
+else:
+    R_Qs = (
+        (ddot - edot) * psi_Q * df.dx
+        + df.dot(Qs_upwind, psiQ_jump) * df.dS
+        + Qs * flow_dir * nhat * psi_Q * ds#(1)
+    )
 # Sediment transport (Eq 5)
 h = df.CellDiameter(mesh)
 dhsdt = (h_s("+") - h_s("-")) / (0.5 * (h("+") + h("-")))
@@ -640,10 +679,12 @@ while t < t_end:
         sed_solver.parameters["newton_solver"]["relative_tolerance"] = 1e-2
         sed_solver.parameters["newton_solver"]["absolute_tolerance"] = 1e-2
         sed_solver.parameters["newton_solver"]["error_on_nonconvergence"] = True
-        sed_solver.parameters["newton_solver"]["linear_solver"] = "mumps"
+        sed_solver.parameters["newton_solver"]["linear_solver"] = "gmres"
         sed_solver.parameters["newton_solver"]["maximum_iterations"] = 10
         sed_solver.parameters["newton_solver"]["report"] = True
         sed_solver.parameters["newton_solver"]["relaxation_parameter"] = 0.7
+        sed_solver.parameters['newton_solver']['krylov_solver']['relative_tolerance'] = 1e-3
+
         sed_solver.solve()
 
         # Solve for ice velocity and thickness
@@ -656,9 +697,10 @@ while t < t_end:
         mass_solver.parameters["snes_solver"]["relative_tolerance"] = 1e-2
         mass_solver.parameters["snes_solver"]["absolute_tolerance"] = 1e-2
         mass_solver.parameters["snes_solver"]["error_on_nonconvergence"] = True
-        mass_solver.parameters["snes_solver"]["linear_solver"] = "mumps"
+        mass_solver.parameters["snes_solver"]["linear_solver"] = "gmres"
         mass_solver.parameters["snes_solver"]["maximum_iterations"] = 10
         mass_solver.parameters["snes_solver"]["report"] = True
+        mass_solver.parameters['snes_solver']['krylov_solver']['relative_tolerance'] = 1e-3
         mass_solver.solve()
 
         assigner_inv_s.assign([B0, Qs0, h_s0, h_s_0, h_eff0], T)
@@ -701,7 +743,7 @@ while t < t_end:
         ph_hs.set_ydata(h_s0.compute_vertex_values())
         ax[3].set_ylim(0, h_s0.compute_vertex_values().max() + 10)
 
-        if counter % 5 == 0:
+        if counter % 10 == 0:
             # pause(0.00001)
             fig.canvas.start_event_loop(0.001)
             fig.canvas.draw_idle()
