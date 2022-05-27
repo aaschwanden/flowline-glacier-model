@@ -12,14 +12,17 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import matplotlib
 import dolfin as df
+from dolfin import HDF5File
 import ufl
 import matplotlib.pyplot as plt
 import numpy as np
+from mpi4py import MPI as mpi
+from linear_orog_precip import LTOP, OrographicPrecipitation
 
-df.parameters['form_compiler']['optimize'] = True
-df.parameters['form_compiler']['cpp_optimize'] = True
-df.parameters['form_compiler']['quadrature_degree'] = 2
-df.parameters['allow_extrapolation'] = True
+df.parameters["form_compiler"]["optimize"] = True
+df.parameters["form_compiler"]["cpp_optimize"] = True
+df.parameters["form_compiler"]["quadrature_degree"] = 2
+df.parameters["allow_extrapolation"] = True
 
 parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
 parser.description = "Variational Inference of PDD parameters."
@@ -31,8 +34,80 @@ parser.add_argument(
     help="Geometry",
     default="1sided",
 )
+parser.add_argument(
+    "-c",
+    "--climate",
+    dest="climate",
+    choices=["elev", "ltop"],
+    help="Geometry",
+    default="elev",
+)
+parser.add_argument("-i", dest="init_file", help="File with inital state", default=None)
+parser.add_argument("-o", dest="out_file", help="Output file", default="out")
+parser.add_argument("-a", "--t_start", type=float, help="Start year", default=0.0)
+parser.add_argument("-e", "--t_end", type=float, help="End year", default=250.0)
+
 options = parser.parse_args()
 geom = options.geometry
+climate = options.climate
+init_file = options.init_file
+out_file = options.out_file
+t_start = options.t_start
+t_end = options.t_end
+
+ltop_constants = dict()
+ltop_constants["lat"] = 0.0  # Latitude
+ltop_constants["tau_c"] = 750  # conversion time [s]
+ltop_constants["tau_f"] = 750  # fallout time [s]
+ltop_constants["Nm"] = 0.005  # 0.005 # moist stability frequency [s-1]
+ltop_constants["Cw"] = 0.0083  # uplift sensitivity factor [k m-3]
+ltop_constants["Hw"] = 3000  # vapor scale height
+ltop_constants["u"] = 7.5  # x-component of wind vector [m s-1]
+ltop_constants["v"] = 0  # y-component of wind vector [m s-1]
+ltop_constants["amin"] = -6.0
+ltop_constants["amax"] = 10.0
+ltop_constants["Smin"] = -400
+ltop_constants["Smax"] = 2500
+ltop_constants["Sela"] = -300
+ltop_constants["P0"] = 0.0  # background precip
+ltop_constants["P_scale"] = 8  # Precip scale factor
+ltop_constants["f"] = (
+    2 * 7.2921e-5 * np.sin(ltop_constants["lat"] * np.pi / 180)
+)  # Coriolis force
+
+
+def get_adot_from_orog_precip(ltop_constants):
+    """
+    Calculates SMB for Linear Orographic Precipitation Model
+    """
+
+    amin = ltop_constants["amin"]
+    amax = ltop_constants["amax"]
+    Smin = ltop_constants["Smin"]
+    Smax = ltop_constants["Smax"]
+    Sela = ltop_constants["Sela"]
+    Pscale = ltop_constants["P_scale"]
+    P0 = ltop_constants["P0"]
+
+    x_a = df.project(X[0]).vector().get_local()
+    y_a = df.project(S).vector().get_local()
+
+    XX, YY = np.meshgrid(x_a, list(range(3)))
+    Orography = np.tile(y_a, (3, 1))
+    OP = OrographicPrecipitation(
+        XX,
+        YY,
+        Orography,
+        ltop_constants,
+        truncate=True,
+        ounits="m year-1",
+        tomass=False,
+    )
+
+    P = OP.P
+    P = P[1, :]
+
+    return P
 
 
 ##########################################################
@@ -158,16 +233,19 @@ class BedAsym(df.UserExpression):
             + zmin
         )
 
+
 class FlowDir1Sided(df.UserExpression):
-    def eval(self,values,x):
+    def eval(self, values, x):
         values[0] = 1.0
 
+
 class FlowDirSym(df.UserExpression):
-    def eval(self,values,x):
-        if x[0]>0:
+    def eval(self, values, x):
+        if x[0] > 0:
             values[0] = 1.0
         else:
             values[0] = -1.0
+
 
 # Basal traction
 class Beta2(df.UserExpression):
@@ -182,6 +260,7 @@ class Beta2(df.UserExpression):
 # Define a rectangular mesh
 nx = 500
 mesh = df.IntervalMesh(nx, -L, L)
+X = df.SpatialCoordinate(mesh)  # Spatial coordinate
 
 # Define boundaries
 ocean = df.MeshFunction("size_t", mesh, 1, 0)
@@ -324,18 +403,25 @@ if geom == "1sided":
     )  # *grounded + (-0.5*H)*(1-grounded)
     bdot = df.Constant(0)
 else:
-    adot = ufl.conditional(
-        ufl.lt(S, Sela),
-        (-amin / (Sela - Smin)) * (S - Sela),
-        (amax / (Smax - Sela)) * (S - Sela),
-    ) * grounded + ufl.conditional(
-        ufl.lt(S, Sela),
-        (-amin / (Sela - Smin)) * (H0 - Sela),
-        (amax / (Smax - Sela)) * (H0 * (1 - rho / rho_w) - Sela),
-    ) * (
-        1 - grounded
-    )
-    bdot = df.Constant(0.0) * (1 - grounded)
+    if climate == "elev":
+        adot = ufl.conditional(
+            ufl.lt(S, Sela),
+            (-amin / (Sela - Smin)) * (S - Sela),
+            (amax / (Smax - Sela)) * (S - Sela),
+        ) * grounded + ufl.conditional(
+            ufl.lt(S, Sela),
+            (-amin / (Sela - Smin)) * (H0 - Sela),
+            (amax / (Smax - Sela)) * (H0 * (1 - rho / rho_w) - Sela),
+        ) * (
+            1 - grounded
+        )
+    elif climate in "ltop":
+        adot = df.Function(Q_cg)
+        P = get_adot_from_orog_precip(ltop_constants)
+        adot.vector().set_local(P)
+    else:
+        print(("precip model {} not supported".format(climate)))
+    bdot = df.Constant(0) * (1 - grounded)
 
 
 ########################################################
@@ -455,7 +541,7 @@ uvec = df.as_vector(
 unorm = (df.dot(uvec, uvec)) ** 0.5
 uH = df.avg(ubar) * H_avg + 0.5 * df.avg(unorm) * H_jump
 
-if geom == '1sided':
+if geom == "1sided":
     I_transport = (
         ((H - H0) / dt - (adot + bdot)) * xsi * df.dx
         + df.dot(uH, xsi_jump) * df.dS
@@ -465,7 +551,7 @@ else:
     I_transport = (
         ((H - H0) / dt - (adot + bdot)) * xsi * df.dx
         + df.dot(uH, xsi_jump) * df.dS
-        + ubar * H * nhat * xsi * ds#(1)
+        + ubar * H * nhat * xsi * ds  # (1)
     )
 
 # This projects the DG0 thickness onto a CG1 space, so that we can take derivatives
@@ -491,17 +577,21 @@ dQ_jump = dQ("+") * nhat("+") + dQ("-") * nhat("-")
 psi_avg = 0.5 * (psi("+") + psi("-"))
 psi_jump = psi("+") * nhat("+") + psi("-") * nhat("-")
 
-dQ_upwind = df.avg(flow_dir)*dQ_avg + 0.5 * dQ_jump
+dQ_upwind = df.avg(flow_dir) * dQ_avg + 0.5 * dQ_jump
 
 Qw = df.Function(Q_dg)
 
-if geom=='1sided':
+if geom == "1sided":
     W_div = (
-    -me * psi * df.dx + df.dot(dQ_upwind, psi_jump) * df.dS + dQ * flow_dir * nhat * psi * ds(1)
+        -me * psi * df.dx
+        + df.dot(dQ_upwind, psi_jump) * df.dS
+        + dQ * flow_dir * nhat * psi * ds(1)
     )
 else:
     W_div = (
-    -me * psi * df.dx + df.dot(dQ_upwind, psi_jump) * df.dS + dQ * flow_dir * nhat * psi * ds#(1)
+        -me * psi * df.dx
+        + df.dot(dQ_upwind, psi_jump) * df.dS
+        + dQ * flow_dir * nhat * psi * ds  # (1)
     )
 
 R_Qw = W_div
@@ -535,9 +625,9 @@ k_diff = df.Constant(5000)
 psih_avg = 0.5 * (psi_h("+") + psi_h("-"))
 psih_jump = psi_h("+") * nhat("+") + psi_h("-") * nhat("-")
 
-Qs_upwind = df.avg(flow_dir)*Qs_avg + 0.5 * Qs_jump
+Qs_upwind = df.avg(flow_dir) * Qs_avg + 0.5 * Qs_jump
 # Sediment flux (Eq 8)
-if geom == '1sided':
+if geom == "1sided":
     R_Qs = (
         (ddot - edot) * psi_Q * df.dx
         + df.dot(Qs_upwind, psiQ_jump) * df.dS
@@ -547,7 +637,7 @@ else:
     R_Qs = (
         (ddot - edot) * psi_Q * df.dx
         + df.dot(Qs_upwind, psiQ_jump) * df.dS
-        + Qs * flow_dir * nhat * psi_Q * ds#(1)
+        + Qs * flow_dir * nhat * psi_Q * ds  # (1)
     )
 # Sediment transport (Eq 5)
 h = df.CellDiameter(mesh)
@@ -611,7 +701,7 @@ sed_problem = df.NonlinearVariationalProblem(R_sed, T, J=J_sed)
 
 ### PLOTTING ###
 plt.ion()
-fig, ax = plt.subplots(nrows=4, sharex=True, figsize=(10, 12))
+fig, ax = plt.subplots(nrows=5, sharex=True, figsize=(10, 12))
 
 x = mesh.coordinates()
 BB = B0.compute_vertex_values()
@@ -637,11 +727,16 @@ ax[2].set_ylabel("Abs(Speed) (m/a)")
 ax[3].set_ylabel("Sed. Thk.")
 ax[3].set_xlabel("Dist.")
 
+(ph_adot,) = ax[4].plot(x, np.zeros_like(x), "k-", lw=1.0, label="SMB")
+(ph_bdot,) = ax[4].plot(x, np.zeros_like(x), "r-", lw=1.0, label="BMB")
+ax[4].set_ylabel("mass balance (m/yr).")
+ax[4].set_xlabel("Dist.")
+ax[4].set_ylim(-1, 10)
+
+
 plt.pause(0.00001)
 
 # Time interval
-t = 0.0
-t_end = 10000.0
 
 counter = 0
 
@@ -660,9 +755,45 @@ udef0.vector()[:] += 1e-3 * np.random.randn(udef0.vector().get_local().shape[0])
 assigner_g.assign(U, [ubar0, udef0, H0, H0_])
 assigner_s.assign(T, [B0, Qs0, h_s0, h_s_0, h_eff0])
 
+
+#
+# RESTART    #################################
+#
+
+if init_file is not None:
+    """
+    Restart from file
+    """
+    hdf = HDF5File(mpi.COMM_WORLD, init_file, "r")
+    hdf.read(mesh, "mesh", False)
+    hdf.read(H0, "H")
+    hdf.read(H0_, "H_")
+    hdf.read(ubar0, "ubar")
+    hdf.read(udef0, "udef")
+    hdf.read(B0, "B")
+    hdf.read(Qs0, "Qs")
+    hdf.read(h_s0, "h_s")
+    hdf.read(h_s_0, "h_s_")
+    hdf.read(h_eff0, "h_eff")
+    assigner_s.assign(T, [B0, Qs0, h_s0, h_s_0, h_eff0])
+    assigner_g.assign(U, [ubar0, udef0, H0, H0_])
+
+# Save the time series
+hdf = HDF5File(mesh.mpi_comm(), out_file + ".h5", "w")
+hdf.write(mesh, "mesh")
+
+t = t_start
 # Loop over time
 while t < t_end:
     try:  # If the solvers don't converge, reduce the time step and try again.
+
+        bmelt = -20.0
+        bdot = df.conditional(df.gt(H, np.abs(bmelt)), bmelt, -H) * (1 - grounded)
+
+        P = None
+        if climate in "ltop":
+            P = get_adot_from_orog_precip(ltop_constants)
+            adot.vector().set_local(P)
         print(t, dt_float, H0.vector().max(), df.assemble(h_s0 * df.dx))
 
         assigner_s.assign(T, [B0, Qs0, h_s0, h_s_0, h_eff0])
@@ -683,7 +814,9 @@ while t < t_end:
         sed_solver.parameters["newton_solver"]["maximum_iterations"] = 10
         sed_solver.parameters["newton_solver"]["report"] = True
         sed_solver.parameters["newton_solver"]["relaxation_parameter"] = 0.7
-        sed_solver.parameters['newton_solver']['krylov_solver']['relative_tolerance'] = 1e-3
+        sed_solver.parameters["newton_solver"]["krylov_solver"][
+            "relative_tolerance"
+        ] = 1e-3
 
         sed_solver.solve()
 
@@ -700,7 +833,9 @@ while t < t_end:
         mass_solver.parameters["snes_solver"]["linear_solver"] = "gmres"
         mass_solver.parameters["snes_solver"]["maximum_iterations"] = 10
         mass_solver.parameters["snes_solver"]["report"] = True
-        mass_solver.parameters['snes_solver']['krylov_solver']['relative_tolerance'] = 1e-3
+        mass_solver.parameters["snes_solver"]["krylov_solver"][
+            "relative_tolerance"
+        ] = 1e-3
         mass_solver.solve()
 
         assigner_inv_s.assign([B0, Qs0, h_s0, h_s_0, h_eff0], T)
@@ -741,6 +876,8 @@ while t < t_end:
         ph_ub.set_ydata(np.abs(ub_))
 
         ph_hs.set_ydata(h_s0.compute_vertex_values())
+        ph_adot.set_ydata(df.project(adot).compute_vertex_values())
+        ph_bdot.set_ydata(np.abs(df.project(bdot).compute_vertex_values()))
         ax[3].set_ylim(0, h_s0.compute_vertex_values().max() + 10)
 
         if counter % 10 == 0:
@@ -754,3 +891,17 @@ while t < t_end:
         dt_float /= 2.0
         dt.assign(dt_float)
         print("convergence failed, reducing time step and trying again")
+
+
+# Save last time step for restarting purposes
+hdf_state = HDF5File(mesh.mpi_comm(), "init_" + out_file + ".h5", "w")
+hdf_state.write(mesh, "mesh")
+hdf_state.write(H0, "H")
+hdf_state.write(H0_, "H_")
+hdf_state.write(ubar0, "ubar")
+hdf_state.write(udef0, "udef")
+hdf_state.write(B0, "B")
+hdf_state.write(Qs0, "Qs")
+hdf_state.write(h_s0, "h_s")
+hdf_state.write(h_s_0, "h_s_")
+hdf_state.write(h_eff0, "h_eff")
