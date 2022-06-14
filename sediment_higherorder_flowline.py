@@ -45,7 +45,7 @@ parser.add_argument(
 parser.add_argument("-i", dest="init_file", help="File with inital state", default=None)
 parser.add_argument("-o", dest="out_file", help="Output file", default="out")
 parser.add_argument("-a", "--t_start", type=float, help="Start year", default=0.0)
-parser.add_argument("-e", "--t_end", type=float, help="End year", default=250.0)
+parser.add_argument("-e", "--t_end", type=float, help="End year", default=5000.0)
 
 options = parser.parse_args()
 geom = options.geometry
@@ -161,8 +161,8 @@ rho_r = 2750.0  # Bedrock density
 La = 3.35e5
 
 g = 9.81  # Gravitational acceleration
-n = 3.0  # Glen's exponent
-m = 1.0  # Sliding law exponent
+n = df.Constant(3.0)  # Glen's exponent
+n_sliding = df.Constant(1.5)  # Sliding law exponent
 b = 1e-16 ** (-1.0 / n)  # Ice hardness
 eps_reg = df.Constant(1e-4)  # Regularization parameter
 
@@ -250,7 +250,7 @@ class FlowDirSym(df.UserExpression):
 # Basal traction
 class Beta2(df.UserExpression):
     def eval(self, values, x):
-        values[0] = 50
+        values[0] = 100
 
 
 ##########################################################
@@ -515,12 +515,33 @@ points, weights = full_quad(4)
 vi = VerticalIntegrator(points, weights)
 
 # Pressure and sliding law
+
+normalx = (B.dx(0) + h_s.dx(0)) / df.sqrt((B.dx(0) + h_s.dx(0)) ** 2 + 1.0)
+normalz = df.sqrt(1 - normalx**2)
+
+
 P_0 = H
 P_w = ufl.Max(k * H, rho_w / rho_i * (l - Base))
 N = ufl.Max(P_0 - P_w, df.Constant(0.000))
+# tau_b = beta2 * u(1) * N
+tau_b = (
+    beta2
+    * (abs(N) + 1.0e-4) ** (1.0 / n_sliding)
+    * (abs(u(1)) + 1.0e-4) ** (1.0 / n_sliding - 1)
+    * u(1)
+)
+# tau_b = (
+#     beta2
+#     * (abs(u(1)) + 1.0) ** (1.0 / n - 1)
+#     * u(1)
+#     * (abs(N) + 1.0) ** (1.0 / n)
+#     #    * (1 - normalx**2)
+#     #    * grounded
+# )
+
 
 I_stress = (
-    -vi.intz(membrane_xx) - vi.intz(shear_xz) - phi(1) * beta2 * u(1) * N - tau_dx()
+    -vi.intz(membrane_xx) - vi.intz(shear_xz) - phi(1) * tau_b - tau_dx()
 ) * df.dx
 
 #############################################################################
@@ -567,7 +588,7 @@ J = df.derivative(R, U, dU)
 #############################################################################
 
 # Meltrate
-me = (beta2 * N * u(1) ** 2 / (rho * La) - Min(adot, -1e-16)) * sigmoid(
+me = (tau_b * u(1) / (rho * La) - Min(adot, -1e-16)) * sigmoid(
     H - (thklim + df.Constant(1))
 )
 # h = df.CellDiameter(mesh)
@@ -608,7 +629,7 @@ delta = df.exp(-h_s / l_s)
 ubar_w = Qw / h_eff
 
 # Rate of bedrock erosion (Eq 2, RHS)
-Bdot = -be * beta2 * N * u(1) ** 2 * delta
+Bdot = -be * tau_b * u(1) * delta
 # Erosion rate (Eq 6)
 edot = cc / h_eff * ubar_w**2 * (1 - delta)
 # Deposition rate (Eq 7)
@@ -720,7 +741,7 @@ ax[1].set_ylabel("Water flux")
 
 (ph_us,) = ax[2].plot(x, np.zeros_like(x), "r-", lw=1.0)
 (ph_ub,) = ax[2].plot(x, np.zeros_like(x), "k-", lw=1.0)
-ax[2].set_ylim(0, 500)
+ax[2].set_ylim(0, 1000)
 ax[2].set_ylabel("Abs(Speed) (m/a)")
 
 (ph_hs,) = ax[3].plot(x, np.zeros_like(x), "k-", lw=1.0)
@@ -785,8 +806,9 @@ hdf.write(mesh, "mesh")
 t = t_start
 # Loop over time
 while t < t_end:
-    try:  # If the solvers don't converge, reduce the time step and try again.
+    ax[0].set_title(t)
 
+    try:  # If the solvers don't converge, reduce the time step and try again.
         bmelt = -20.0
         bdot = df.conditional(df.gt(H, np.abs(bmelt)), bmelt, -H) * (1 - grounded)
 
